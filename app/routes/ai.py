@@ -1,0 +1,70 @@
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Optional, List
+from app.middleware.auth import get_current_user, get_optional_user
+from app.services.ai_service import (
+    analyze_contract_text,
+    analyze_contract_by_id,
+    generate_contract_draft,
+    ai_chat,
+)
+
+router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
+
+
+class AnalyzeTextRequest(BaseModel):
+    text: str
+
+
+class GenerateDraftRequest(BaseModel):
+    contract_type: str
+    parties: Optional[List[dict]] = []
+    key_terms: Optional[dict] = {}
+
+
+class ChatRequest(BaseModel):
+    contract_id: Optional[str] = None
+    question: str
+
+
+@router.post("/analyze/text")
+async def analyze_text(request: AnalyzeTextRequest):
+    """Analyze raw contract text with AI."""
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="Contract text cannot be empty")
+
+    result = await analyze_contract_text(request.text)
+    return result
+
+
+@router.post("/analyze/{contract_id}")
+async def analyze_contract(contract_id: str):
+    """Run AI analysis on a contract stored in the database."""
+    result = await analyze_contract_by_id(contract_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return result
+
+
+@router.post("/generate-draft")
+async def generate_draft(request: GenerateDraftRequest):
+    """Generate a contract draft using AI."""
+    result = await generate_contract_draft(
+        contract_type=request.contract_type,
+        parties=request.parties,
+        key_terms=request.key_terms,
+    )
+    return result
+
+
+@router.post("/chat")
+async def chat_with_ai(request: ChatRequest):
+    """Ask AI a question about a contract or general legal question."""
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    result = await ai_chat(
+        contract_id=request.contract_id or "",
+        question=request.question,
+    )
+    return result
