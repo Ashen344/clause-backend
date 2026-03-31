@@ -14,6 +14,11 @@ CLERK_ISSUER = os.getenv("CLERK_ISSUER", "")
 SECRET_KEY = os.getenv("SECRET_KEY", "default-secret-key")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+# Google Calendar
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/calendar/callback")
+
 # Create the MongoDB client connection
 client = MongoClient(MONGODB_URI)
 
@@ -28,3 +33,4 @@ notifications_collection = db["notifications"]
 templates_collection = db["templates"]
 workflows_collection = db["workflows"]
 approvals_collection = db["approvals"]
+calendar_tokens_collection = db["calendar_tokens"]
