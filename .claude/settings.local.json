@@ -7,7 +7,10 @@
       "Bash(timeout 8 ./venv/Scripts/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000)",
       "Bash(./venv/Scripts/pip freeze:*)",
       "Bash(find /c/Users/HP/Desktop/clause/backend/clause-backend -name .env* -o -name *.env*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(python seed.py)",
+      "Bash(python -c \"from app.routes.admin import router; print\\(''Admin route OK, endpoints:'', [r.path for r in router.routes]\\)\")",
+      "Bash(npx tsc:*)"
     ]
   }
 }

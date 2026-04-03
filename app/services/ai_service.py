@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
-from app.config import contracts_collection, GEMINI_API_KEY
+from app.config import contracts_collection, GEMINI_API_KEY, GEMINI_MODEL
 
 # Lazy-load Gemini to avoid import errors if not installed
 _model = None
@@ -12,7 +12,7 @@ def _get_model():
     if _model is None:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
-        _model = genai.GenerativeModel("gemini-1.5-flash")
+        _model = genai.GenerativeModel(GEMINI_MODEL)
     return _model
 
 
