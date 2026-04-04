@@ -10,7 +10,10 @@
       "Bash(xargs grep:*)",
       "Bash(python seed.py)",
       "Bash(python -c \"from app.routes.admin import router; print\\(''Admin route OK, endpoints:'', [r.path for r in router.routes]\\)\")",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(python -c \"from app.main import app; print\\(''Backend OK - routes:'', len\\(app.routes\\)\\)\")",
+      "Bash(python -c \":*)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

@@ -13,6 +13,7 @@ from app.routes.notifications import router as notifications_router
 from app.routes.audit import router as audit_router
 from app.routes.calendar import router as calendar_router
 from app.routes.admin import router as admin_router
+from app.routes.documents import router as documents_router
 
 app = FastAPI(
     title="CLAUSE - Contract Lifecycle Management System",
@@ -45,6 +46,7 @@ app.include_router(notifications_router)
 app.include_router(audit_router)
 app.include_router(calendar_router)
 app.include_router(admin_router)
+app.include_router(documents_router)
 
 
 @app.get("/")

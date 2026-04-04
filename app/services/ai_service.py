@@ -242,6 +242,152 @@ def _mock_analysis() -> dict:
     }
 
 
+async def detect_conflicts(contract_ids: list[str]) -> dict:
+    """Use AI to detect conflicting clauses across multiple contracts."""
+    # Fetch all requested contracts
+    contracts = []
+    for cid in contract_ids:
+        if not ObjectId.is_valid(cid):
+            continue
+        c = contracts_collection.find_one({"_id": ObjectId(cid)})
+        if c:
+            contracts.append(c)
+
+    if len(contracts) < 2:
+        return {
+            "error": "At least 2 valid contracts are required for conflict detection.",
+            "conflicts": [],
+        }
+
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        return _mock_conflicts(contracts)
+
+    try:
+        model = _get_model()
+
+        # Build contract summaries for the prompt
+        contract_texts = []
+        for i, c in enumerate(contracts, 1):
+            contract_texts.append(
+                f"--- CONTRACT {i}: {c.get('title', 'Untitled')} (ID: {str(c['_id'])}) ---\n"
+                + _build_contract_text(c)
+            )
+
+        all_text = "\n\n".join(contract_texts)
+
+        prompt = f"""You are a legal analyst specializing in contract conflict detection.
+
+Analyze the following {len(contracts)} contracts and identify any conflicting, contradictory, or incompatible clauses and requirements between them.
+
+For each conflict found, provide:
+1. Which contracts are involved (by their titles)
+2. The specific clauses or terms that conflict
+3. The nature of the conflict (contradiction, overlap, incompatibility)
+4. The severity (high, medium, low)
+5. A recommendation for resolution
+
+Return ONLY valid JSON in this exact format:
+{{
+    "total_conflicts": <number>,
+    "overall_risk": "<low|medium|high|critical>",
+    "summary": "Brief overall summary of findings",
+    "conflicts": [
+        {{
+            "id": 1,
+            "contract_a": "Title of first contract",
+            "contract_b": "Title of second contract",
+            "clause_a": "The clause/term from contract A",
+            "clause_b": "The conflicting clause/term from contract B",
+            "conflict_type": "<contradiction|overlap|incompatibility|ambiguity>",
+            "severity": "<high|medium|low>",
+            "description": "Clear explanation of why these conflict",
+            "recommendation": "How to resolve this conflict"
+        }}
+    ]
+}}
+
+If no conflicts are found, return total_conflicts: 0 with an empty conflicts array.
+
+Contracts to analyze:
+{all_text}"""
+
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        import json
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+
+        result = json.loads(response_text)
+        result["analyzed_at"] = datetime.utcnow().isoformat()
+        result["contracts_analyzed"] = [
+            {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
+            for c in contracts
+        ]
+        return result
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "conflicts": [],
+            "total_conflicts": 0,
+            "analyzed_at": datetime.utcnow().isoformat(),
+        }
+
+
+def _mock_conflicts(contracts: list) -> dict:
+    """Return mock conflict detection results."""
+    titles = [c.get("title", "Untitled") for c in contracts]
+    return {
+        "total_conflicts": 3,
+        "overall_risk": "medium",
+        "summary": f"Found 3 potential conflicts across {len(contracts)} contracts. Review recommended for liability and termination clauses.",
+        "conflicts": [
+            {
+                "id": 1,
+                "contract_a": titles[0],
+                "contract_b": titles[1] if len(titles) > 1 else titles[0],
+                "clause_a": "Liability limited to contract value",
+                "clause_b": "Unlimited liability for data breaches",
+                "conflict_type": "contradiction",
+                "severity": "high",
+                "description": "One contract limits liability while another requires unlimited liability for similar scenarios.",
+                "recommendation": "Harmonize liability caps across both contracts or add specific carve-outs.",
+            },
+            {
+                "id": 2,
+                "contract_a": titles[0],
+                "contract_b": titles[1] if len(titles) > 1 else titles[0],
+                "clause_a": "30-day termination notice required",
+                "clause_b": "60-day termination notice required",
+                "conflict_type": "incompatibility",
+                "severity": "medium",
+                "description": "Conflicting termination notice periods could create compliance issues.",
+                "recommendation": "Align termination notice periods to the longer duration (60 days).",
+            },
+            {
+                "id": 3,
+                "contract_a": titles[0],
+                "contract_b": titles[-1],
+                "clause_a": "Governing law: State of Delaware",
+                "clause_b": "Governing law: State of California",
+                "conflict_type": "incompatibility",
+                "severity": "low",
+                "description": "Different governing laws may create jurisdictional ambiguity.",
+                "recommendation": "Choose a single governing law or add a conflict resolution clause.",
+            },
+        ],
+        "contracts_analyzed": [
+            {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
+            for c in contracts
+        ],
+        "analyzed_at": datetime.utcnow().isoformat(),
+    }
+
+
 def _mock_draft(contract_type: str, parties: list) -> dict:
     """Return a mock draft when Gemini API key is not configured."""
     return {

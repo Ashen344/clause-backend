@@ -7,6 +7,7 @@ from app.services.ai_service import (
     analyze_contract_by_id,
     generate_contract_draft,
     ai_chat,
+    detect_conflicts,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
@@ -20,6 +21,10 @@ class GenerateDraftRequest(BaseModel):
     contract_type: str
     parties: Optional[List[dict]] = []
     key_terms: Optional[dict] = {}
+
+
+class ConflictDetectionRequest(BaseModel):
+    contract_ids: List[str]
 
 
 class ChatRequest(BaseModel):
@@ -54,6 +59,18 @@ async def generate_draft(request: GenerateDraftRequest):
         parties=request.parties,
         key_terms=request.key_terms,
     )
+    return result
+
+
+@router.post("/conflicts")
+async def detect_contract_conflicts(request: ConflictDetectionRequest):
+    """Detect conflicting clauses across multiple contracts."""
+    if len(request.contract_ids) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 contract IDs are required")
+    if len(request.contract_ids) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 contracts can be compared at once")
+
+    result = await detect_conflicts(request.contract_ids)
     return result
 
 
