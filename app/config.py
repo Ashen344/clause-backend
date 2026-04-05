@@ -1,9 +1,12 @@
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 from pymongo import MongoClient
 
 # Load variables from .env file into the environment
-load_dotenv()
+# Use explicit path so it works regardless of working directory
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 # Read each value from environment variables
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
