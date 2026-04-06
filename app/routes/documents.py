@@ -2,16 +2,25 @@ import os
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from bson import ObjectId
-from app.config import contracts_collection
-from app.middleware.auth import get_current_user, get_optional_user
+from io import BytesIO
+from app.config import contracts_collection, fs
+from app.middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
 ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
+
+MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt": "text/plain",
+    ".rtf": "application/rtf",
+    ".odt": "application/vnd.oasis.opendocument.text",
+}
 
 
 @router.post("/upload/{contract_id}")
@@ -19,9 +28,9 @@ async def upload_document(
     contract_id: str,
     file: UploadFile = File(...),
     change_notes: str = Form(default=""),
-    current_user: dict = Depends(get_optional_user),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Upload a document to a contract."""
+    """Upload a document to a contract. Stored in MongoDB GridFS."""
     if not ObjectId.is_valid(contract_id):
         raise HTTPException(status_code=400, detail="Invalid contract ID")
 
@@ -43,27 +52,27 @@ async def upload_document(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File size exceeds 20MB limit")
 
-    # Save file to disk
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_id = uuid.uuid4().hex
-    stored_filename = f"{file_id}{ext}"
-    file_path = os.path.join(UPLOAD_DIR, stored_filename)
-
-    with open(file_path, "wb") as f:
-        f.write(content)
+    # Store file in GridFS (MongoDB)
+    gridfs_id = fs.put(
+        content,
+        filename=file.filename,
+        content_type=MIME_TYPES.get(ext, "application/octet-stream"),
+        contract_id=contract_id,
+        uploaded_by=current_user["user_id"],
+        uploaded_at=datetime.utcnow(),
+    )
 
     # Build version entry
     current_version = contract.get("current_version", 0)
     new_version = current_version + 1
-    user_id = current_user["user_id"] if current_user else "unknown"
 
     version_entry = {
         "version_number": new_version,
-        "file_url": stored_filename,
+        "gridfs_id": str(gridfs_id),
         "original_filename": file.filename,
         "file_size": len(content),
         "file_type": ext,
-        "uploaded_by": user_id,
+        "uploaded_by": current_user["user_id"],
         "uploaded_at": datetime.utcnow(),
         "change_notes": change_notes or None,
     }
@@ -74,8 +83,8 @@ async def upload_document(
         {
             "$push": {"versions": version_entry},
             "$set": {
-                "file_url": stored_filename,
                 "current_version": new_version,
+                "current_gridfs_id": str(gridfs_id),
                 "updated_at": datetime.utcnow(),
             },
         },
@@ -87,12 +96,17 @@ async def upload_document(
         "filename": file.filename,
         "file_size": len(content),
         "file_type": ext,
+        "gridfs_id": str(gridfs_id),
     }
 
 
 @router.get("/download/{contract_id}")
-async def download_document(contract_id: str, version: int = 0):
-    """Download a document. If version=0 (default), downloads the latest."""
+async def download_document(
+    contract_id: str,
+    version: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Download a document from GridFS. If version=0 (default), downloads the latest."""
     if not ObjectId.is_valid(contract_id):
         raise HTTPException(status_code=400, detail="Invalid contract ID")
 
@@ -112,20 +126,31 @@ async def download_document(contract_id: str, version: int = 0):
     else:
         target = versions[-1]  # latest
 
-    file_path = os.path.join(UPLOAD_DIR, target["file_url"])
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    gridfs_id = target.get("gridfs_id")
+    if not gridfs_id or not ObjectId.is_valid(gridfs_id):
+        raise HTTPException(status_code=404, detail="File reference not found")
 
-    original_name = target.get("original_filename", target["file_url"])
-    return FileResponse(
-        path=file_path,
-        filename=original_name,
-        media_type="application/octet-stream",
+    # Retrieve from GridFS
+    try:
+        grid_file = fs.get(ObjectId(gridfs_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found in database")
+
+    original_name = target.get("original_filename", "document")
+    content_type = MIME_TYPES.get(target.get("file_type", ""), "application/octet-stream")
+
+    return StreamingResponse(
+        BytesIO(grid_file.read()),
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{original_name}"'},
     )
 
 
 @router.get("/list/{contract_id}")
-async def list_documents(contract_id: str):
+async def list_documents(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """List all document versions for a contract."""
     if not ObjectId.is_valid(contract_id):
         raise HTTPException(status_code=400, detail="Invalid contract ID")
@@ -141,12 +166,13 @@ async def list_documents(contract_id: str):
         "documents": [
             {
                 "version_number": v.get("version_number"),
-                "original_filename": v.get("original_filename", v.get("file_url", "")),
+                "original_filename": v.get("original_filename", ""),
                 "file_size": v.get("file_size"),
                 "file_type": v.get("file_type"),
                 "uploaded_by": v.get("uploaded_by"),
                 "uploaded_at": v.get("uploaded_at"),
                 "change_notes": v.get("change_notes"),
+                "gridfs_id": v.get("gridfs_id"),
             }
             for v in versions
         ],
@@ -172,10 +198,13 @@ async def delete_document(
     if not target:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    # Remove file from disk
-    file_path = os.path.join(UPLOAD_DIR, target["file_url"])
-    if os.path.exists(file_path):
-        os.remove(file_path)
+    # Remove file from GridFS
+    gridfs_id = target.get("gridfs_id")
+    if gridfs_id and ObjectId.is_valid(gridfs_id):
+        try:
+            fs.delete(ObjectId(gridfs_id))
+        except Exception:
+            pass  # File may already be deleted
 
     # Remove from DB
     contracts_collection.update_one(
@@ -186,13 +215,13 @@ async def delete_document(
     # Update current version if needed
     remaining = [v for v in versions if v["version_number"] != version_number]
     new_current = remaining[-1]["version_number"] if remaining else 0
-    new_file_url = remaining[-1]["file_url"] if remaining else None
+    new_gridfs = remaining[-1].get("gridfs_id") if remaining else None
 
     contracts_collection.update_one(
         {"_id": ObjectId(contract_id)},
         {"$set": {
             "current_version": new_current,
-            "file_url": new_file_url,
+            "current_gridfs_id": new_gridfs,
             "updated_at": datetime.utcnow(),
         }},
     )

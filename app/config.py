@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 from pymongo import MongoClient
+import gridfs
 
 # Load variables from .env file into the environment
 # Use explicit path so it works regardless of working directory
@@ -28,6 +29,9 @@ client = MongoClient(MONGODB_URI)
 
 # Get a reference to your specific database
 db = client[DATABASE_NAME]
+
+# GridFS for document/PDF storage in the database
+fs = gridfs.GridFS(db)
 
 # Define your collections (like tables in SQL)
 users_collection = db["users"]

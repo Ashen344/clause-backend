@@ -21,7 +21,9 @@
       "Bash(curl -s http://localhost:8000/api/contracts)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''contracts:'''', d.get\\(''''total'''', 0\\)\\)\")",
       "Bash(curl -sv http://localhost:8000/api/contracts)",
-      "Bash(curl -s http://localhost:8000/api/contracts/)"
+      "Bash(curl -s http://localhost:8000/api/contracts/)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from app.main import app; print\\(''App loaded successfully''\\); print\\(''Routes:'', [r.path for r in app.routes]\\)\")"
     ]
   }
 }

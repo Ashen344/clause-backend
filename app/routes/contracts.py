@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 from app.models.contract import (
     ContractCreate,
@@ -19,22 +19,21 @@ from app.services.contract_service import (
     update_workflow_stage,
     get_dashboard_stats,
 )
+from app.middleware.auth import get_current_user, require_role
 
-# Create a router - this groups all contract-related endpoints together
-# The prefix means all routes in this file start with /api/contracts
-# Tags help organize the auto-generated docs at /docs
 router = APIRouter(prefix="/api/contracts", tags=["Contracts"])
 
 
-# POST /api/contracts - Create a new contract
 @router.post("/", response_model=None)
-async def create_new_contract(contract: ContractCreate):
-    # For now we hardcode user_id - later Clerk auth will provide this
-    result = await create_contract(contract, user_id="temp_user")
+async def create_new_contract(
+    contract: ContractCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new contract. Any authenticated user can create."""
+    result = await create_contract(contract, user_id=current_user["user_id"])
     return result
 
 
-# GET /api/contracts - List all contracts with optional filters
 @router.get("/")
 async def list_contracts(
     search: Optional[str] = Query(None, description="Search by title"),
@@ -44,8 +43,8 @@ async def list_contracts(
     risk_level: Optional[RiskLevel] = Query(None),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    current_user: dict = Depends(get_current_user),
 ):
-    # Build the filter object from query parameters
     filters = ContractFilter(
         search=search,
         contract_type=contract_type,
@@ -58,54 +57,53 @@ async def list_contracts(
     return await get_contracts(filters)
 
 
-# GET /api/contracts/dashboard - Dashboard statistics
-# IMPORTANT: This route must be ABOVE /{contract_id}
-# Otherwise FastAPI thinks "dashboard" is a contract ID
 @router.get("/dashboard")
-async def dashboard_statistics():
+async def dashboard_statistics(current_user: dict = Depends(get_current_user)):
     return await get_dashboard_stats()
 
 
-# GET /api/contracts/{contract_id} - Get a single contract
 @router.get("/{contract_id}")
-async def get_single_contract(contract_id: str):
+async def get_single_contract(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     contract = await get_contract(contract_id)
-
     if not contract:
-        # Return a 404 error with a clear message
         raise HTTPException(status_code=404, detail="Contract not found")
-
     return contract
 
 
-# PUT /api/contracts/{contract_id} - Update a contract
 @router.put("/{contract_id}")
-async def update_existing_contract(contract_id: str, update_data: ContractUpdate):
+async def update_existing_contract(
+    contract_id: str,
+    update_data: ContractUpdate,
+    current_user: dict = Depends(get_current_user),
+):
     contract = await update_contract(contract_id, update_data)
-
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-
     return contract
 
 
-# DELETE /api/contracts/{contract_id} - Delete a contract
 @router.delete("/{contract_id}")
-async def delete_existing_contract(contract_id: str):
+async def delete_existing_contract(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     success = await delete_contract(contract_id)
-
     if not success:
         raise HTTPException(status_code=404, detail="Contract not found")
-
     return {"message": "Contract deleted successfully"}
 
 
-# PATCH /api/contracts/{contract_id}/workflow - Update workflow stage
 @router.patch("/{contract_id}/workflow")
-async def change_workflow_stage(contract_id: str, stage: WorkflowStage):
+async def change_workflow_stage(
+    contract_id: str,
+    stage: WorkflowStage,
+    current_user: dict = Depends(require_role(["admin", "manager"])),
+):
+    """Update workflow stage. Admin/Manager only."""
     contract = await update_workflow_stage(contract_id, stage.value)
-
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-
     return contract

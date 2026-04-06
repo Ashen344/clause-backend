@@ -1,9 +1,9 @@
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-from typing import Optional
+from typing import Optional, List
 import httpx
-from app.config import CLERK_SECRET_KEY, CLERK_ISSUER
+from app.config import CLERK_SECRET_KEY, CLERK_ISSUER, users_collection
 
 security = HTTPBearer(auto_error=False)
 
@@ -49,7 +49,8 @@ def decode_clerk_token(token: str) -> Optional[dict]:
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
-    """Dependency that extracts and validates the current user from the JWT token."""
+    """Dependency that extracts and validates the current user from the JWT token.
+    Also enriches the token data with the user's role from the database."""
     if not credentials:
         raise HTTPException(
             status_code=401,
@@ -65,6 +66,15 @@ async def get_current_user(
             detail="Invalid or expired authentication token.",
         )
 
+    # Enrich with DB role so downstream routes can check permissions
+    db_user = users_collection.find_one({"clerk_id": user_data["user_id"]})
+    if db_user:
+        user_data["role"] = db_user.get("role", "user")
+        user_data["db_id"] = str(db_user["_id"])
+    else:
+        user_data["role"] = "user"
+        user_data["db_id"] = None
+
     return user_data
 
 
@@ -76,4 +86,54 @@ async def get_optional_user(
         return None
 
     token = credentials.credentials
-    return decode_clerk_token(token)
+    user_data = decode_clerk_token(token)
+    if user_data and user_data.get("user_id"):
+        db_user = users_collection.find_one({"clerk_id": user_data["user_id"]})
+        if db_user:
+            user_data["role"] = db_user.get("role", "user")
+            user_data["db_id"] = str(db_user["_id"])
+        else:
+            user_data["role"] = "user"
+            user_data["db_id"] = None
+    return user_data
+
+
+def require_role(allowed_roles: List[str]):
+    """Dependency factory that enforces role-based access.
+    Usage: current_user: dict = Depends(require_role(["admin", "manager"]))
+    """
+    async def role_checker(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    ) -> dict:
+        if not credentials:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required.",
+            )
+
+        token = credentials.credentials
+        user_data = decode_clerk_token(token)
+
+        if not user_data or not user_data.get("user_id"):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired authentication token.",
+            )
+
+        db_user = users_collection.find_one({"clerk_id": user_data["user_id"]})
+        if db_user:
+            user_data["role"] = db_user.get("role", "user")
+            user_data["db_id"] = str(db_user["_id"])
+        else:
+            user_data["role"] = "user"
+            user_data["db_id"] = None
+
+        if user_data["role"] not in allowed_roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied. Required role: {', '.join(allowed_roles)}. Your role: {user_data['role']}",
+            )
+
+        return user_data
+
+    return role_checker

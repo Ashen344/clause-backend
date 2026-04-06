@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
-from app.config import contracts_collection, GEMINI_API_KEY, GEMINI_MODEL
+from app.config import contracts_collection, fs, GEMINI_API_KEY, GEMINI_MODEL
 
 # Lazy-load Gemini to avoid import errors if not installed
 _model = None
@@ -184,8 +184,67 @@ Answer the following question clearly and professionally:
         }
 
 
+def extract_text_from_pdf(file_bytes: bytes) -> str:
+    """Extract text content from a PDF file."""
+    try:
+        from PyPDF2 import PdfReader
+        from io import BytesIO
+
+        reader = PdfReader(BytesIO(file_bytes))
+        text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+        return "\n".join(text_parts)
+    except Exception as e:
+        return f"[PDF text extraction failed: {str(e)}]"
+
+
+def extract_text_from_file(file_bytes: bytes, file_type: str) -> str:
+    """Extract text from an uploaded file based on its type."""
+    if file_type == ".pdf":
+        return extract_text_from_pdf(file_bytes)
+    elif file_type == ".txt":
+        try:
+            return file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return file_bytes.decode("latin-1")
+    elif file_type in (".doc", ".docx"):
+        try:
+            from docx import Document
+            from io import BytesIO
+            doc = Document(BytesIO(file_bytes))
+            return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        except Exception as e:
+            return f"[DOCX text extraction failed: {str(e)}]"
+    else:
+        return "[Unsupported file format for text extraction]"
+
+
+def get_document_text_from_gridfs(contract: dict) -> Optional[str]:
+    """Retrieve and extract text from the latest uploaded document in GridFS."""
+    gridfs_id = contract.get("current_gridfs_id")
+    if not gridfs_id or not ObjectId.is_valid(gridfs_id):
+        return None
+
+    try:
+        grid_file = fs.get(ObjectId(gridfs_id))
+        file_bytes = grid_file.read()
+
+        # Determine file type from the versions list
+        versions = contract.get("versions", [])
+        latest = versions[-1] if versions else {}
+        file_type = latest.get("file_type", ".pdf")
+
+        return extract_text_from_file(file_bytes, file_type)
+    except Exception:
+        return None
+
+
 def _build_contract_text(contract: dict) -> str:
-    """Build readable text from a contract document for AI analysis."""
+    """Build readable text from a contract document for AI analysis.
+    Includes extracted text from uploaded documents if available."""
     parts = [
         f"Title: {contract.get('title', 'N/A')}",
         f"Type: {contract.get('contract_type', 'N/A')}",
@@ -205,6 +264,11 @@ def _build_contract_text(contract: dict) -> str:
     tags = contract.get("tags", [])
     if tags:
         parts.append(f"Tags: {', '.join(tags)}")
+
+    # Include text from uploaded document if available
+    doc_text = get_document_text_from_gridfs(contract)
+    if doc_text:
+        parts.append(f"\n--- Uploaded Document Content ---\n{doc_text}")
 
     return "\n".join(parts)
 

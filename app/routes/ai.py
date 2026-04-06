@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
-from app.middleware.auth import get_current_user, get_optional_user
+from app.middleware.auth import get_current_user
 from app.services.ai_service import (
     analyze_contract_text,
     analyze_contract_by_id,
@@ -33,17 +33,22 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/analyze/text")
-async def analyze_text(request: AnalyzeTextRequest):
+async def analyze_text(
+    request: AnalyzeTextRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Analyze raw contract text with AI."""
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Contract text cannot be empty")
-
     result = await analyze_contract_text(request.text)
     return result
 
 
 @router.post("/analyze/{contract_id}")
-async def analyze_contract(contract_id: str):
+async def analyze_contract(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """Run AI analysis on a contract stored in the database."""
     result = await analyze_contract_by_id(contract_id)
     if not result:
@@ -52,7 +57,10 @@ async def analyze_contract(contract_id: str):
 
 
 @router.post("/generate-draft")
-async def generate_draft(request: GenerateDraftRequest):
+async def generate_draft(
+    request: GenerateDraftRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Generate a contract draft using AI."""
     result = await generate_contract_draft(
         contract_type=request.contract_type,
@@ -63,24 +71,28 @@ async def generate_draft(request: GenerateDraftRequest):
 
 
 @router.post("/conflicts")
-async def detect_contract_conflicts(request: ConflictDetectionRequest):
+async def detect_contract_conflicts(
+    request: ConflictDetectionRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Detect conflicting clauses across multiple contracts."""
     if len(request.contract_ids) < 2:
         raise HTTPException(status_code=400, detail="At least 2 contract IDs are required")
     if len(request.contract_ids) > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 contracts can be compared at once")
-
     result = await detect_conflicts(request.contract_ids)
     return result
 
 
 @router.post("/chat")
-async def chat_with_ai(request: ChatRequest):
+async def chat_with_ai(
+    request: ChatRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Ask AI a question about a contract or general legal question."""
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
-
-    result = await ai_chat(
+        result = await ai_chat(
         contract_id=request.contract_id or "",
         question=request.question,
     )
