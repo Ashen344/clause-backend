@@ -10,7 +10,7 @@ load_dotenv(_env_path)
 
 # Read each value from environment variables
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-DATABASE_NAME = os.getenv("DATABASE_NAME", "clause_db")
+DATABASE_NAME = os.getenv("DATABASE_NAME", "Clause")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
