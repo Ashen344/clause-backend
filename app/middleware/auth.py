@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Optional
 import httpx
-from app.config import CLERK_SECRET_KEY, CLERK_ISSUER
+from app.config import CLERK_SECRET_KEY, CLERK_ISSUER, users_collection
 
 security = HTTPBearer(auto_error=False)
 
@@ -77,3 +77,20 @@ async def get_optional_user(
 
     token = credentials.credentials
     return decode_clerk_token(token)
+
+
+async def get_current_user_with_role(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
+    """Like get_current_user but also attaches the user's role from our DB."""
+    user_data = await get_current_user(credentials)
+
+    db_user = users_collection.find_one({"clerk_id": user_data["user_id"]})
+    if db_user:
+        user_data["role"] = db_user.get("role", "user")
+        user_data["db_id"] = str(db_user["_id"])
+    else:
+        user_data["role"] = "user"
+        user_data["db_id"] = None
+
+    return user_data

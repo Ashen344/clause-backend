@@ -49,7 +49,7 @@ async def get_approval(approval_id: str) -> Optional[dict]:
     return approval_to_response(approval)
 
 
-async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest) -> Optional[dict]:
+async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest, is_admin: bool = False) -> Optional[dict]:
     """Cast a vote on an approval request."""
     if not ObjectId.is_valid(approval_id):
         return None
@@ -70,6 +70,17 @@ async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest) -> Option
             approver["decided_at"] = datetime.utcnow()
             voter_found = True
             break
+
+    # Admins can vote even if not listed as an approver — add them on the fly
+    if not voter_found and is_admin:
+        approvers.append({
+            "user_id": user_id,
+            "user_email": None,
+            "decision": vote.decision.value,
+            "comments": vote.comments,
+            "decided_at": datetime.utcnow(),
+        })
+        voter_found = True
 
     if not voter_found:
         return None  # Not an authorized approver

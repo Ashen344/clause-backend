@@ -44,7 +44,7 @@ async def get_workflow_details(workflow_id: str):
 async def get_contract_workflows(contract_id: str):
     """Get all workflows for a specific contract."""
     workflows = await get_workflows_by_contract(contract_id)
-    return {"workflows": workflows}
+    return workflows
 
 
 @router.post("/{workflow_id}/advance")
