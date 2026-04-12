@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from app.middleware.auth import get_current_user, get_optional_user
+from app.middleware.auth import get_current_user, get_current_user_with_role
 from app.models.approval import ApprovalCreate, VoteRequest
 from app.services.approval_service import (
     create_approval,
@@ -8,14 +8,29 @@ from app.services.approval_service import (
     get_pending_approvals,
     get_approvals_by_contract,
 )
+from app.config import contracts_collection
+from bson import ObjectId
 
 router = APIRouter(prefix="/api/approvals", tags=["Approvals"])
 
 
 @router.post("/")
-async def create_new_approval(approval_data: ApprovalCreate):
-    """Create a new approval request for a contract."""
-    result = await create_approval(approval_data, user_id="temp_user")
+async def create_new_approval(
+    approval_data: ApprovalCreate,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Create a new approval request. Admins can create for any contract; users only for their own."""
+    is_admin = current_user.get("role") in ("admin", "manager")
+
+    if not is_admin:
+        # Verify the user owns the contract
+        if not ObjectId.is_valid(approval_data.contract_id):
+            raise HTTPException(status_code=400, detail="Invalid contract ID")
+        contract = contracts_collection.find_one({"_id": ObjectId(approval_data.contract_id)})
+        if not contract or contract.get("created_by") != current_user["user_id"]:
+            raise HTTPException(status_code=403, detail="You can only create approvals for your own contracts")
+
+    result = await create_approval(approval_data, user_id=current_user["user_id"])
     return result
 
 
@@ -29,10 +44,14 @@ async def get_approval_details(approval_id: str):
 
 
 @router.post("/{approval_id}/vote")
-async def vote_on_approval(approval_id: str, vote: VoteRequest):
-    """Cast a vote on an approval request."""
-    # In production, user_id would come from auth
-    result = await cast_vote(approval_id, user_id="temp_user", vote=vote)
+async def vote_on_approval(
+    approval_id: str,
+    vote: VoteRequest,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Cast a vote on an approval. Admins can vote on any approval; others only if listed as approver."""
+    is_admin = current_user.get("role") in ("admin", "manager")
+    result = await cast_vote(approval_id, user_id=current_user["user_id"], vote=vote, is_admin=is_admin)
     if not result:
         raise HTTPException(
             status_code=400,

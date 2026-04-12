@@ -7,6 +7,15 @@ from bson import ObjectId
 from app.config import contracts_collection
 from app.middleware.auth import get_current_user, get_optional_user
 
+MIME_MAP = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".rtf": "application/rtf",
+    ".odt": "application/vnd.oasis.opendocument.text",
+}
+
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
@@ -121,6 +130,42 @@ async def download_document(contract_id: str, version: int = 0):
         path=file_path,
         filename=original_name,
         media_type="application/octet-stream",
+    )
+
+
+@router.get("/view/{contract_id}")
+async def view_document(contract_id: str, version: int = 0):
+    """Serve a document inline so the browser can render it (PDF viewer, text, etc.)."""
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=400, detail="Invalid contract ID")
+
+    contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    versions = contract.get("versions", [])
+    if not versions:
+        raise HTTPException(status_code=404, detail="No documents uploaded for this contract")
+
+    if version > 0:
+        target = next((v for v in versions if v["version_number"] == version), None)
+        if not target:
+            raise HTTPException(status_code=404, detail=f"Version {version} not found")
+    else:
+        target = versions[-1]
+
+    file_path = os.path.join(UPLOAD_DIR, target["file_url"])
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    ext = target.get("file_type", ".pdf")
+    media_type = MIME_MAP.get(ext, "application/octet-stream")
+    original_name = target.get("original_filename", target["file_url"])
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{original_name}"'},
     )
 
 

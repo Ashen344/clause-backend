@@ -47,9 +47,7 @@ async def create_contract(contract_data: ContractCreate, user_id: str) -> dict:
 
 
 # GET a single contract by its ID
-async def get_contract(contract_id: str) -> Optional[dict]:
-    # Validate that the ID is a valid MongoDB ObjectId format
-    # If someone sends "abc123" instead of a proper 24-character hex string, catch it
+async def get_contract(contract_id: str, user_id: str = None, is_admin: bool = False) -> Optional[dict]:
     if not ObjectId.is_valid(contract_id):
         return None
 
@@ -58,13 +56,21 @@ async def get_contract(contract_id: str) -> Optional[dict]:
     if not contract:
         return None
 
+    # Non-admins can only access contracts they created
+    if not is_admin and user_id and contract.get("created_by") != user_id:
+        return None
+
     return contract_to_response(contract)
 
 
 # GET all contracts with filtering, searching, and pagination
-async def get_contracts(filters: ContractFilter) -> dict:
+async def get_contracts(filters: ContractFilter, user_id: str = None, is_admin: bool = False) -> dict:
     # Build the MongoDB query dynamically based on what filters were provided
     query = {}
+
+    # Non-admins only see contracts they created
+    if not is_admin and user_id:
+        query["created_by"] = user_id
 
     # Text search - searches the title field using regex (case-insensitive)
     if filters.search:
