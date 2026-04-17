@@ -1,66 +1,29 @@
+import httpx
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
-from app.config import contracts_collection, GEMINI_API_KEY, GEMINI_MODEL
+from app.config import contracts_collection, AI_PLATFORM_URL
 
-# Lazy-load Gemini to avoid import errors if not installed
-_model = None
+# Shared HTTP client timeout (seconds)
+_TIMEOUT = 60.0
 
 
-def _get_model():
-    global _model
-    if _model is None:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        _model = genai.GenerativeModel(GEMINI_MODEL)
-    return _model
+def _platform_url(path: str) -> str:
+    return f"{AI_PLATFORM_URL}{path}"
 
 
 async def analyze_contract_text(contract_text: str) -> dict:
-    """Use Gemini AI to analyze contract text and extract key information."""
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return _mock_analysis()
-
+    """Send contract text to the AI platform for structured analysis."""
     try:
-        model = _get_model()
-
-        prompt = f"""Analyze the following contract text and provide a structured analysis in JSON format.
-Return ONLY valid JSON with these fields:
-{{
-    "summary": "A 2-3 sentence summary of the contract",
-    "extracted_clauses": ["list of key clauses found"],
-    "key_information": {{
-        "parties": ["list of parties involved"],
-        "duration": "contract duration",
-        "payment_terms": "payment terms if found",
-        "termination_conditions": "how the contract can be terminated",
-        "governing_law": "applicable law/jurisdiction"
-    }},
-    "risk_score": <number 0-100>,
-    "risk_level": "<low|medium|high>",
-    "risk_factors": ["list of identified risk factors"],
-    "recommendations": ["list of recommendations for improvement"]
-}}
-
-Contract text:
-{contract_text}"""
-
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
-
-        # Try to parse JSON from the response
-        import json
-        # Handle markdown code blocks
-        if response_text.startswith("```"):
-            response_text = response_text.split("```")[1]
-            if response_text.startswith("json"):
-                response_text = response_text[4:]
-            response_text = response_text.strip()
-
-        analysis = json.loads(response_text)
-        analysis["analyzed_at"] = datetime.utcnow().isoformat()
-        return analysis
-
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                _platform_url("/analyze-text"),
+                json={"text": contract_text},
+            )
+            resp.raise_for_status()
+            analysis = resp.json()
+            analysis["analyzed_at"] = datetime.utcnow().isoformat()
+            return analysis
     except Exception as e:
         return {
             "error": str(e),
@@ -80,11 +43,9 @@ async def analyze_contract_by_id(contract_id: str) -> Optional[dict]:
     if not contract:
         return None
 
-    # Build text from contract fields
     contract_text = _build_contract_text(contract)
     analysis = await analyze_contract_text(contract_text)
 
-    # Store the analysis results back on the contract
     ai_analysis = {
         "summary": analysis.get("summary"),
         "extracted_clauses": analysis.get("extracted_clauses"),
@@ -113,32 +74,21 @@ async def generate_contract_draft(
     parties: list,
     key_terms: dict,
 ) -> dict:
-    """Use AI to generate a contract draft based on parameters."""
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return _mock_draft(contract_type, parties)
-
+    """Delegate draft generation to the AI platform."""
     try:
-        model = _get_model()
-
-        parties_str = ", ".join([p.get("name", "Party") for p in parties]) if parties else "Party A, Party B"
-        terms_str = "\n".join([f"- {k}: {v}" for k, v in key_terms.items()]) if key_terms else "Standard terms"
-
-        prompt = f"""Generate a professional {contract_type} contract between {parties_str}.
-
-Key terms:
-{terms_str}
-
-Generate a complete, professional contract with standard legal clauses.
-Include sections for: Parties, Scope, Term, Payment, Confidentiality, Termination, Governing Law, and Signatures.
-Return the contract as plain text."""
-
-        response = model.generate_content(prompt)
-        return {
-            "contract_type": contract_type,
-            "content": response.text,
-            "generated_at": datetime.utcnow().isoformat(),
-        }
-
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                _platform_url("/generate-draft"),
+                json={
+                    "contract_type": contract_type,
+                    "parties": parties or [],
+                    "key_terms": key_terms or {},
+                },
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            result["generated_at"] = datetime.utcnow().isoformat()
+            return result
     except Exception as e:
         return {
             "error": str(e),
@@ -147,40 +97,136 @@ Return the contract as plain text."""
         }
 
 
-async def ai_chat(contract_id: str, question: str) -> dict:
-    """Ask AI a question about a specific contract."""
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return {
-            "answer": "AI service is not configured. Please set your GEMINI_API_KEY in .env",
-            "contract_id": contract_id,
-        }
-
-    contract = None
-    if contract_id and ObjectId.is_valid(contract_id):
+async def ai_chat(contract_id: str, question: str, contract_text: str | None = None, session_id: str | None = None) -> dict:
+    """Delegate AI chat to the platform, passing contract context if available."""
+    if not contract_text and contract_id and ObjectId.is_valid(contract_id):
         contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
+        if contract:
+            contract_text = _build_contract_text(contract)
 
     try:
-        model = _get_model()
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            payload = {"question": question}
+            if contract_text:
+                payload["contract_text"] = contract_text
+            if session_id:
+                payload["session_id"] = session_id
 
-        context = ""
-        if contract:
-            context = f"Contract context:\n{_build_contract_text(contract)}\n\n"
-
-        prompt = f"""{context}You are a legal AI assistant for a Contract Lifecycle Management system.
-Answer the following question clearly and professionally:
-
-{question}"""
-
-        response = model.generate_content(prompt)
+            resp = await client.post(
+                _platform_url("/chat"),
+                json=payload,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            result["contract_id"] = contract_id
+            return result
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            return {
+                "answer": "The AI service is currently busy. Please wait a minute and try again.",
+                "contract_id": contract_id,
+            }
         return {
-            "answer": response.text,
+            "answer": "The AI service encountered an issue. Please try again later.",
+            "contract_id": contract_id,
+        }
+    except httpx.ConnectError:
+        return {
+            "answer": "Unable to reach the AI service. Please make sure it is running and try again.",
+            "contract_id": contract_id,
+        }
+    except Exception:
+        return {
+            "answer": "Something went wrong while contacting the AI service. Please try again later.",
             "contract_id": contract_id,
         }
 
+
+async def embed_and_analyze(
+    document_text: str,
+    file_name: str,
+    question: str,
+    session_id: str | None = None,
+) -> dict:
+    """Send extracted document text to the AI platform for embedding and analysis."""
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            payload = {
+                "text": document_text,
+                "file_name": file_name,
+                "question": question,
+            }
+            if session_id:
+                payload["session_id"] = session_id
+
+            resp = await client.post(
+                _platform_url("/embed-and-analyze"),
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            return {
+                "answer": "The AI service is currently busy. Please wait a minute and try again.",
+            }
+        return {
+            "answer": "The AI service encountered an issue. Please try again later.",
+        }
+    except httpx.ConnectError:
+        return {
+            "answer": "Unable to reach the AI service. Please make sure it is running and try again.",
+        }
+    except Exception:
+        return {
+            "answer": "Something went wrong while contacting the AI service. Please try again later.",
+        }
+
+
+async def detect_conflicts(contract_ids: list[str]) -> dict:
+    """Fetch contracts from DB and delegate conflict detection to the AI platform."""
+    contracts = []
+    for cid in contract_ids:
+        if not ObjectId.is_valid(cid):
+            continue
+        c = contracts_collection.find_one({"_id": ObjectId(cid)})
+        if c:
+            contracts.append(c)
+
+    if len(contracts) < 2:
+        return {
+            "error": "At least 2 valid contracts are required for conflict detection.",
+            "conflicts": [],
+        }
+
+    try:
+        contract_payloads = [
+            {
+                "title": c.get("title", "Untitled"),
+                "text": _build_contract_text(c),
+            }
+            for c in contracts
+        ]
+
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                _platform_url("/detect-conflicts"),
+                json={"contracts": contract_payloads},
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            result["analyzed_at"] = datetime.utcnow().isoformat()
+            result["contracts_analyzed"] = [
+                {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
+                for c in contracts
+            ]
+            return result
     except Exception as e:
         return {
-            "answer": f"Error: {str(e)}",
-            "contract_id": contract_id,
+            "error": str(e),
+            "conflicts": [],
+            "total_conflicts": 0,
+            "analyzed_at": datetime.utcnow().isoformat(),
         }
 
 
@@ -207,191 +253,3 @@ def _build_contract_text(contract: dict) -> str:
         parts.append(f"Tags: {', '.join(tags)}")
 
     return "\n".join(parts)
-
-
-def _mock_analysis() -> dict:
-    """Return mock analysis when Gemini API key is not configured."""
-    return {
-        "summary": "This is a mock analysis. Configure GEMINI_API_KEY for real AI analysis.",
-        "extracted_clauses": [
-            "Confidentiality clause",
-            "Termination clause",
-            "Payment terms",
-            "Liability limitations",
-        ],
-        "key_information": {
-            "parties": ["Party A", "Party B"],
-            "duration": "12 months",
-            "payment_terms": "Net 30",
-            "termination_conditions": "30 days written notice",
-            "governing_law": "Not specified",
-        },
-        "risk_score": 45.0,
-        "risk_level": "medium",
-        "risk_factors": [
-            "No governing law specified",
-            "Broad liability clause",
-            "Missing dispute resolution mechanism",
-        ],
-        "recommendations": [
-            "Add governing law clause",
-            "Narrow liability limitations",
-            "Include dispute resolution procedure",
-        ],
-        "analyzed_at": datetime.utcnow().isoformat(),
-    }
-
-
-async def detect_conflicts(contract_ids: list[str]) -> dict:
-    """Use AI to detect conflicting clauses across multiple contracts."""
-    # Fetch all requested contracts
-    contracts = []
-    for cid in contract_ids:
-        if not ObjectId.is_valid(cid):
-            continue
-        c = contracts_collection.find_one({"_id": ObjectId(cid)})
-        if c:
-            contracts.append(c)
-
-    if len(contracts) < 2:
-        return {
-            "error": "At least 2 valid contracts are required for conflict detection.",
-            "conflicts": [],
-        }
-
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return _mock_conflicts(contracts)
-
-    try:
-        model = _get_model()
-
-        # Build contract summaries for the prompt
-        contract_texts = []
-        for i, c in enumerate(contracts, 1):
-            contract_texts.append(
-                f"--- CONTRACT {i}: {c.get('title', 'Untitled')} (ID: {str(c['_id'])}) ---\n"
-                + _build_contract_text(c)
-            )
-
-        all_text = "\n\n".join(contract_texts)
-
-        prompt = f"""You are a legal analyst specializing in contract conflict detection.
-
-Analyze the following {len(contracts)} contracts and identify any conflicting, contradictory, or incompatible clauses and requirements between them.
-
-For each conflict found, provide:
-1. Which contracts are involved (by their titles)
-2. The specific clauses or terms that conflict
-3. The nature of the conflict (contradiction, overlap, incompatibility)
-4. The severity (high, medium, low)
-5. A recommendation for resolution
-
-Return ONLY valid JSON in this exact format:
-{{
-    "total_conflicts": <number>,
-    "overall_risk": "<low|medium|high|critical>",
-    "summary": "Brief overall summary of findings",
-    "conflicts": [
-        {{
-            "id": 1,
-            "contract_a": "Title of first contract",
-            "contract_b": "Title of second contract",
-            "clause_a": "The clause/term from contract A",
-            "clause_b": "The conflicting clause/term from contract B",
-            "conflict_type": "<contradiction|overlap|incompatibility|ambiguity>",
-            "severity": "<high|medium|low>",
-            "description": "Clear explanation of why these conflict",
-            "recommendation": "How to resolve this conflict"
-        }}
-    ]
-}}
-
-If no conflicts are found, return total_conflicts: 0 with an empty conflicts array.
-
-Contracts to analyze:
-{all_text}"""
-
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
-
-        import json
-        if response_text.startswith("```"):
-            response_text = response_text.split("```")[1]
-            if response_text.startswith("json"):
-                response_text = response_text[4:]
-            response_text = response_text.strip()
-
-        result = json.loads(response_text)
-        result["analyzed_at"] = datetime.utcnow().isoformat()
-        result["contracts_analyzed"] = [
-            {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
-            for c in contracts
-        ]
-        return result
-
-    except Exception as e:
-        return {
-            "error": str(e),
-            "conflicts": [],
-            "total_conflicts": 0,
-            "analyzed_at": datetime.utcnow().isoformat(),
-        }
-
-
-def _mock_conflicts(contracts: list) -> dict:
-    """Return mock conflict detection results."""
-    titles = [c.get("title", "Untitled") for c in contracts]
-    return {
-        "total_conflicts": 3,
-        "overall_risk": "medium",
-        "summary": f"Found 3 potential conflicts across {len(contracts)} contracts. Review recommended for liability and termination clauses.",
-        "conflicts": [
-            {
-                "id": 1,
-                "contract_a": titles[0],
-                "contract_b": titles[1] if len(titles) > 1 else titles[0],
-                "clause_a": "Liability limited to contract value",
-                "clause_b": "Unlimited liability for data breaches",
-                "conflict_type": "contradiction",
-                "severity": "high",
-                "description": "One contract limits liability while another requires unlimited liability for similar scenarios.",
-                "recommendation": "Harmonize liability caps across both contracts or add specific carve-outs.",
-            },
-            {
-                "id": 2,
-                "contract_a": titles[0],
-                "contract_b": titles[1] if len(titles) > 1 else titles[0],
-                "clause_a": "30-day termination notice required",
-                "clause_b": "60-day termination notice required",
-                "conflict_type": "incompatibility",
-                "severity": "medium",
-                "description": "Conflicting termination notice periods could create compliance issues.",
-                "recommendation": "Align termination notice periods to the longer duration (60 days).",
-            },
-            {
-                "id": 3,
-                "contract_a": titles[0],
-                "contract_b": titles[-1],
-                "clause_a": "Governing law: State of Delaware",
-                "clause_b": "Governing law: State of California",
-                "conflict_type": "incompatibility",
-                "severity": "low",
-                "description": "Different governing laws may create jurisdictional ambiguity.",
-                "recommendation": "Choose a single governing law or add a conflict resolution clause.",
-            },
-        ],
-        "contracts_analyzed": [
-            {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
-            for c in contracts
-        ],
-        "analyzed_at": datetime.utcnow().isoformat(),
-    }
-
-
-def _mock_draft(contract_type: str, parties: list) -> dict:
-    """Return a mock draft when Gemini API key is not configured."""
-    return {
-        "contract_type": contract_type,
-        "content": f"[Mock {contract_type} contract draft]\n\nConfigure GEMINI_API_KEY for AI-generated drafts.",
-        "generated_at": datetime.utcnow().isoformat(),
-    }

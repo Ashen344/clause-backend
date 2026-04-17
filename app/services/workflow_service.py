@@ -73,6 +73,26 @@ async def get_workflow(workflow_id: str) -> Optional[dict]:
     return workflow_to_response(workflow)
 
 
+async def get_all_workflows(page: int = 1, per_page: int = 50) -> dict:
+    """Get all workflows with pagination."""
+    skip = (page - 1) * per_page
+    total = workflows_collection.count_documents({})
+    workflows_cursor = (
+        workflows_collection
+        .find()
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(per_page)
+    )
+    workflows = [workflow_to_response(w) for w in workflows_cursor]
+    return {
+        "workflows": workflows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
 async def get_workflows_by_contract(contract_id: str) -> list:
     workflows = workflows_collection.find({"contract_id": contract_id}).sort("created_at", -1)
     return [workflow_to_response(w) for w in workflows]

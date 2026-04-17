@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from app.config import contracts_collection
 from app.models.contract import (
@@ -184,7 +184,7 @@ async def get_dashboard_stats() -> dict:
 
     # Find contracts expiring in the next 30 days
     now = datetime.utcnow()
-    thirty_days = datetime(now.year, now.month + 1, now.day) if now.month < 12 else datetime(now.year + 1, 1, now.day)
+    thirty_days = now + timedelta(days=30)
 
     expiring_soon = contracts_collection.count_documents({
         "status": "active",
