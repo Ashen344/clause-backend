@@ -1,0 +1,48 @@
+NON-DISCLOSURE AGREEMENT
+
+This Non-Disclosure Agreement ("Agreement") is entered into as of {effective_date} ("Effective Date") by and between:
+
+{party_a} ("Disclosing Party"), and
+{party_b} ("Receiving Party").
+
+1. DEFINITION OF CONFIDENTIAL INFORMATION
+"Confidential Information" means any non-public information disclosed by the Disclosing Party to the Receiving Party, either directly or indirectly, in writing, orally, or by inspection of tangible objects, including but not limited to: {confidential_info_description}.
+
+2. OBLIGATIONS OF RECEIVING PARTY
+The Receiving Party agrees to:
+(a) Hold the Confidential Information in strict confidence;
+(b) Not disclose the Confidential Information to any third party without prior written consent;
+(c) Use the Confidential Information solely for the purpose of {purpose};
+(d) Limit access to Confidential Information to employees or contractors who have a need to know.
+
+3. EXCLUSIONS
+This Agreement does not apply to information that:
+(a) Is or becomes publicly available through no fault of the Receiving Party;
+(b) Was rightfully known to the Receiving Party prior to disclosure;
+(c) Is required to be disclosed by applicable law or court order.
+
+4. TERM
+This Agreement shall remain in effect for {term} years from the Effective Date.
+
+5. RETURN OF INFORMATION
+Upon request, the Receiving Party shall promptly return or destroy all Confidential Information.
+
+6. GOVERNING LAW
+This Agreement shall be governed by the laws of {governing_law}.
+
+7. ENTIRE AGREEMENT
+This Agreement constitutes the entire agreement between the parties with respect to the subject matter hereof.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective Date.
+
+{party_a}
+Signature: _______________________
+Name: {party_a_signatory}
+Title: {party_a_title}
+Date: ___________________________
+
+{party_b}
+Signature: _______________________
+Name: {party_b_signatory}
+Title: {party_b_title}
+Date: ___________________________

@@ -1,0 +1,103 @@
+# DEV ONLY — the canonical docker-compose.yml is in the project root.
+services:
+
+  redis:
+    image: redis/redis-stack:latest
+    container_name: redis_cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+      - "8001:8001"       # Redis Insight GUI → http://localhost:8001
+    volumes:
+      - redis_data:/data
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\\|yellow\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── RQ worker: listens on contract_tasks, runs analyze_contract ────────────
+  worker:
+    build: .
+    container_name: clm_worker
+    command: ["--worker"]
+    restart: unless-stopped
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ES_URL=http://elasticsearch:9200
+      - INDEX_NAME=clm_knowledge_base
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=6379
+      - QUEUE_NAME=contract_tasks
+      - JOB_TIMEOUT=600
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - pdf_data:/data
+    networks:
+      - rag-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  # ── One-shot CLI: sync ingest OR enqueue jobs ──────────────────────────────
+  ingest:
+    build: .
+    container_name: clm_ingest
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ES_URL=http://elasticsearch:9200
+      - INDEX_NAME=clm_knowledge_base
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=6379
+      - QUEUE_NAME=contract_tasks
+      - JOB_TIMEOUT=600
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - pdf_data:/data
+      - ${PDF_DIR:-./data}:/data/input   # host PDFs → /data/input inside container
+    networks:
+      - rag-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    # Runtime examples:
+    #   Sync:   docker compose run --rm ingest --file /data/input/c.pdf --doc-type SLA --customer Acme
+    #   Async:  docker compose run --rm ingest --file /data/input/c.pdf --enqueue
+    #   Upload: docker compose run --rm ingest python upload.py /data/input/c.pdf
+    command: ["--help"]
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  es_data:
+  redis_data:
+  pdf_data:
+

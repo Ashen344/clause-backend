@@ -1,0 +1,54 @@
+MASTER SERVICE AGREEMENT
+
+This Master Service Agreement ("Agreement") is entered into as of {effective_date} by and between:
+
+{service_provider} ("Service Provider"), and
+{client} ("Client").
+
+1. SERVICES
+Service Provider agrees to perform the services described in one or more Statements of Work ("SOW") executed under this Agreement. The initial scope of services includes: {services_description}.
+
+2. TERM
+This Agreement commences on {effective_date} and continues for {term} unless earlier terminated in accordance with Section 9.
+
+3. FEES AND PAYMENT
+3.1 Client shall pay Service Provider {payment_terms}.
+3.2 Invoices are due within {payment_due_days} days of receipt.
+3.3 Late payments shall accrue interest at {late_interest_rate}% per month.
+
+4. INTELLECTUAL PROPERTY
+4.1 Service Provider retains ownership of all pre-existing intellectual property.
+4.2 Work product created specifically for Client under a SOW shall be owned by {ip_owner} upon full payment.
+
+5. CONFIDENTIALITY
+Each party agrees to keep confidential all non-public information of the other party and to use such information solely for the purposes of this Agreement.
+
+6. WARRANTIES
+Service Provider warrants that services will be performed in a professional and workmanlike manner consistent with industry standards.
+
+7. LIMITATION OF LIABILITY
+In no event shall either party be liable for indirect, incidental, or consequential damages. Total liability shall not exceed {liability_cap}.
+
+8. INDEMNIFICATION
+Each party shall indemnify and hold harmless the other party from claims arising from its own negligence or wilful misconduct.
+
+9. TERMINATION
+9.1 Either party may terminate this Agreement with {termination_notice} days written notice.
+9.2 Either party may terminate immediately upon material breach not cured within 30 days of notice.
+
+10. GOVERNING LAW
+This Agreement shall be governed by the laws of {governing_law}.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+{service_provider}
+Signature: _______________________
+Name: {provider_signatory}
+Title: {provider_title}
+Date: ___________________________
+
+{client}
+Signature: _______________________
+Name: {client_signatory}
+Title: {client_title}
+Date: ___________________________

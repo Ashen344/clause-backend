@@ -1,0 +1,68 @@
+SERVICE LEVEL AGREEMENT
+
+This Service Level Agreement ("SLA") is entered into as of {effective_date} by and between:
+
+{service_provider} ("Service Provider"), and
+{client} ("Client").
+
+1. PURPOSE
+This SLA defines the level of service that {service_provider} will provide to {client} for: {service_description}.
+
+2. SERVICE AVAILABILITY
+2.1 Target Uptime: {uptime_target}% measured monthly.
+2.2 Scheduled Maintenance Window: {maintenance_window}.
+2.3 Downtime Notification: Service Provider will notify Client at least {notification_period} hours in advance of planned maintenance.
+
+3. PERFORMANCE METRICS
+| Metric              | Target                  |
+|---------------------|-------------------------|
+| Response Time       | {response_time}         |
+| Resolution Time P1  | {p1_resolution}         |
+| Resolution Time P2  | {p2_resolution}         |
+| Resolution Time P3  | {p3_resolution}         |
+
+4. INCIDENT CLASSIFICATION
+P1 (Critical): {p1_definition}
+P2 (High):     {p2_definition}
+P3 (Medium):   {p3_definition}
+
+5. SUPPORT
+Support Hours: {support_hours}
+Support Channels: {support_channels}
+Escalation Contact: {escalation_contact}
+
+6. SERVICE CREDITS
+If Service Provider fails to meet the uptime target, Client shall receive service credits as follows:
+- Uptime below {credit_threshold_1}%: {credit_amount_1}% of monthly fee
+- Uptime below {credit_threshold_2}%: {credit_amount_2}% of monthly fee
+Maximum monthly credit: {max_credit}% of monthly fee.
+
+7. EXCLUSIONS
+This SLA does not apply to downtime caused by:
+(a) Client-side issues or misuse;
+(b) Force majeure events;
+(c) Third-party service failures outside Service Provider's control;
+(d) Scheduled maintenance windows.
+
+8. REPORTING
+Service Provider shall provide monthly uptime reports within {report_deadline} business days of month end.
+
+9. REVIEW
+This SLA shall be reviewed {review_frequency} and may be amended by mutual written agreement.
+
+10. GOVERNING LAW
+This Agreement shall be governed by the laws of {governing_law}.
+
+IN WITNESS WHEREOF, the parties have executed this SLA as of the date first written above.
+
+{service_provider}
+Signature: _______________________
+Name: {provider_signatory}
+Title: {provider_title}
+Date: ___________________________
+
+{client}
+Signature: _______________________
+Name: {client_signatory}
+Title: {client_title}
+Date: ___________________________

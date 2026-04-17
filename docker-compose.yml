@@ -1,0 +1,190 @@
+services:
+
+  # ── Nginx edge — the ONLY service exposed to the host ──────────────────
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+    container_name: clm_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - rag-network
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: clm_backend
+    restart: unless-stopped
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017
+      - DATABASE_NAME=${DATABASE_NAME}
+      - AI_PLATFORM_URL=http://agents:8000
+      - CHAT_UPLOAD_DIR=/app/uploads/chat
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_ISSUER=${CLERK_ISSUER}
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - backend_uploads:/app/uploads
+    networks:
+      - rag-network
+    depends_on:
+      mongo:
+        condition: service_healthy
+      agents:
+        condition: service_started
+
+  redis:
+    image: redis/redis-stack:7.2.0-v10
+    container_name: redis_cache
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:$$ELASTIC_PASSWORD http://localhost:9200/_cluster/health | grep -q 'green\\|yellow'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ./ingest
+    container_name: clm_worker
+    command: ["--worker"]
+    restart: unless-stopped
+    environment:
+      - ES_URL=http://elastic:${ELASTIC_PASSWORD}@elasticsearch:9200
+      - INDEX_NAME=${INDEX_NAME}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=6379
+      - QUEUE_NAME=contract_tasks
+      - JOB_TIMEOUT=600
+      - UPLOAD_DIR=/data/uploads
+    secrets:
+      - gemini_api_key
+      - elastic_password
+    volumes:
+      - pdf_data:/data
+    networks:
+      - rag-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  agents:
+    build:
+      context: ./agents
+    container_name: clm_agents
+    restart: unless-stopped
+    environment:
+      - ES_URL=http://elastic:${ELASTIC_PASSWORD}@elasticsearch:9200
+      - INDEX_NAME=${INDEX_NAME}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=6379
+      - GEMINI_MODEL=${GEMINI_MODEL}
+      - GEMINI_MODEL_LITE=${GEMINI_MODEL_LITE}
+      - GEMINI_MODEL_HEAVY=${GEMINI_MODEL_HEAVY}
+      - GEMINI_RPM=${GEMINI_RPM}
+      - GEMINI_RPD=${GEMINI_RPD}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - LOCAL_MODEL_ENABLED=${LOCAL_MODEL_ENABLED}
+    secrets:
+      - gemini_api_key
+      - elastic_password
+    networks:
+      - rag-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+secrets:
+  gemini_api_key:
+    file: ./ingest/secrets/gemini_api_key.txt
+  elastic_password:
+    file: ./ingest/secrets/elastic_password.txt
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  es_data:
+  redis_data:
+  pdf_data:
+  ollama_data:
+  mongo_data:
+  backend_uploads:
