@@ -18,10 +18,15 @@ CLERK_ISSUER = os.getenv("CLERK_ISSUER", "")
 SECRET_KEY = os.getenv("SECRET_KEY", "default-secret-key")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-# Google Calendar
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+# Google Calendar / OAuth
+GOOGLE_CLIENT_ID    = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/calendar/callback")
+GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/calendar/callback")
+FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+# Gmail SMTP  (use a Gmail address + App Password from Google Account settings)
+SMTP_EMAIL    = os.getenv("SMTP_EMAIL", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 # Create the MongoDB client connection
 client = MongoClient(MONGODB_URI)

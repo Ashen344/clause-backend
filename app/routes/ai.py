@@ -8,6 +8,7 @@ from app.services.ai_service import (
     generate_contract_draft,
     ai_chat,
     detect_conflicts,
+    scan_contract_against_existing,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
@@ -27,9 +28,15 @@ class ConflictDetectionRequest(BaseModel):
     contract_ids: List[str]
 
 
+class ChatHistoryMessage(BaseModel):
+    role: str   # "user" | "assistant"
+    content: str
+
 class ChatRequest(BaseModel):
     contract_id: Optional[str] = None
     question: str
+    history: Optional[List[ChatHistoryMessage]] = []
+    mode: Optional[str] = "general"
 
 
 @router.post("/analyze/text")
@@ -74,14 +81,25 @@ async def detect_contract_conflicts(request: ConflictDetectionRequest):
     return result
 
 
+@router.post("/conflicts/scan/{contract_id}")
+async def scan_conflicts_for_contract(contract_id: str):
+    """Scan a newly uploaded contract against all existing contracts for conflicts.
+    Returns zero conflicts (clean) if no other contracts exist yet."""
+    result = await scan_contract_against_existing(contract_id)
+    return result
+
+
 @router.post("/chat")
 async def chat_with_ai(request: ChatRequest):
     """Ask AI a question about a contract or general legal question."""
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
+    history = [{"role": m.role, "content": m.content} for m in (request.history or [])]
+
     result = await ai_chat(
         contract_id=request.contract_id or "",
         question=request.question,
+        history=history,
     )
     return result
