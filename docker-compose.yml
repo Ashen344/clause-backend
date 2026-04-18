@@ -3,8 +3,8 @@ services:
   # ── Nginx edge — the ONLY service exposed to the host ──────────────────
   nginx:
     build:
-      context: .
-      dockerfile: nginx/Dockerfile
+      context: ..
+      dockerfile: clause-backend/nginx/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
@@ -34,7 +34,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
     container_name: clm_backend
     restart: unless-stopped
     environment:
@@ -116,29 +116,6 @@ services:
       elasticsearch:
         condition: service_healthy
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    restart: unless-stopped
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - rag-network
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 12G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
   agents:
     build:
       context: ./agents
@@ -158,6 +135,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL}
       - LOCAL_MODEL_ENABLED=${LOCAL_MODEL_ENABLED}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     secrets:
       - gemini_api_key
       - elastic_password
@@ -167,8 +145,6 @@ services:
       redis:
         condition: service_healthy
       elasticsearch:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
 
 secrets:
