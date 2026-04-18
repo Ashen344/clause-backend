@@ -51,7 +51,7 @@ async def list_contracts(
     workflow_stage: Optional[WorkflowStage] = Query(None),
     risk_level: Optional[RiskLevel] = Query(None),
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    per_page: int = Query(20, ge=1, le=500, description="Items per page"),
     current_user: dict = Depends(get_current_user_with_role),
 ):
     is_admin = current_user.get("role") in ("admin", "manager")

@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse
 from bson import ObjectId
+from pydantic import BaseModel
 from app.config import contracts_collection
 from app.middleware.auth import get_current_user, get_optional_user
 
@@ -196,6 +197,94 @@ async def list_documents(contract_id: str):
             for v in versions
         ],
     }
+
+
+class SaveTextRequest(BaseModel):
+    text: str
+
+
+@router.get("/text/{contract_id}")
+async def get_document_text(contract_id: str):
+    """Return the editable text content stored for a contract document.
+    Falls back to live file extraction when no text is cached yet."""
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=400, detail="Invalid contract ID")
+
+    contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    # 1. Use already-extracted text if available
+    stored_text = contract.get("extracted_text", "")
+    versions = contract.get("versions", [])
+    file_type = ".txt"
+    has_file = bool(versions)
+
+    if versions:
+        latest = versions[-1]
+        file_type = latest.get("file_type", ".txt")
+
+    if stored_text:
+        return {"text": stored_text, "file_type": file_type, "has_file": has_file}
+
+    # 2. Try to extract from disk
+    if not versions:
+        return {"text": "", "file_type": file_type, "has_file": False}
+
+    latest = versions[-1]
+    file_path = os.path.join(UPLOAD_DIR, latest.get("file_url", ""))
+    ext = latest.get("file_type", ".txt")
+
+    if not os.path.exists(file_path):
+        return {"text": "", "file_type": ext, "has_file": False}
+
+    extracted = ""
+    try:
+        if ext == ".pdf":
+            import io
+            try:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(io.BytesIO(open(file_path, "rb").read()))
+                extracted = "\n\n".join(
+                    p.extract_text() or "" for p in reader.pages
+                ).strip()
+            except Exception:
+                pass
+        elif ext in (".txt", ".rtf"):
+            with open(file_path, "r", errors="replace") as f:
+                extracted = f.read()
+        # .docx is handled client-side with mammoth — skip server extraction
+    except Exception:
+        extracted = ""
+
+    # Cache for next time
+    if extracted:
+        contracts_collection.update_one(
+            {"_id": ObjectId(contract_id)},
+            {"$set": {"extracted_text": extracted, "updated_at": datetime.utcnow()}},
+        )
+
+    return {"text": extracted, "file_type": ext, "has_file": True}
+
+
+@router.put("/text/{contract_id}")
+async def save_document_text(
+    contract_id: str,
+    body: SaveTextRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Save edited document text back into the contract record."""
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=400, detail="Invalid contract ID")
+
+    result = contracts_collection.update_one(
+        {"_id": ObjectId(contract_id)},
+        {"$set": {"extracted_text": body.text, "updated_at": datetime.utcnow()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    return {"message": "Text saved successfully"}
 
 
 @router.delete("/{contract_id}/{version_number}")

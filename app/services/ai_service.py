@@ -96,12 +96,20 @@ async def analyze_contract_by_id(contract_id: str) -> Optional[dict]:
         "analyzed_at": datetime.utcnow(),
     }
 
+    # Build the $set payload — always update the root risk fields so the
+    # Risk Analysis page and contract cards reflect the latest AI result.
+    update_fields = {
+        "ai_analysis": ai_analysis,
+        "updated_at": datetime.utcnow(),
+    }
+    if analysis.get("risk_level"):
+        update_fields["risk_level"] = analysis["risk_level"]
+    if analysis.get("risk_score") is not None:
+        update_fields["risk_score"] = analysis["risk_score"]
+
     contracts_collection.update_one(
         {"_id": ObjectId(contract_id)},
-        {"$set": {
-            "ai_analysis": ai_analysis,
-            "updated_at": datetime.utcnow(),
-        }}
+        {"$set": update_fields}
     )
 
     analysis["contract_id"] = contract_id
@@ -147,8 +155,8 @@ Return the contract as plain text."""
         }
 
 
-async def ai_chat(contract_id: str, question: str) -> dict:
-    """Ask AI a question about a specific contract."""
+async def ai_chat(contract_id: str, question: str, history: list = None) -> dict:
+    """Ask AI a question about a specific contract, with optional message history."""
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
         return {
             "answer": "AI service is not configured. Please set your GEMINI_API_KEY in .env",
@@ -162,18 +170,27 @@ async def ai_chat(contract_id: str, question: str) -> dict:
     try:
         model = _get_model()
 
-        context = ""
+        # Build system context
+        context = (
+            "You are a legal AI assistant for a Contract Lifecycle Management system. "
+            "Answer questions clearly, professionally, and concisely.\n\n"
+        )
         if contract:
-            context = f"Contract context:\n{_build_contract_text(contract)}\n\n"
+            context += f"Contract context:\n{_build_contract_text(contract)}\n\n"
 
-        prompt = f"""{context}You are a legal AI assistant for a Contract Lifecycle Management system.
-Answer the following question clearly and professionally:
+        # Build conversation history string
+        history_str = ""
+        if history:
+            for msg in history[-10:]:  # last 10 messages for context window efficiency
+                role_label = "User" if msg.get("role") == "user" else "Assistant"
+                history_str += f"{role_label}: {msg.get('content', '')}\n"
+            history_str += "\n"
 
-{question}"""
+        prompt = f"{context}{history_str}User: {question}\nAssistant:"
 
         response = model.generate_content(prompt)
         return {
-            "answer": response.text,
+            "answer": response.text.strip(),
             "contract_id": contract_id,
         }
 
@@ -386,6 +403,32 @@ def _mock_conflicts(contracts: list) -> dict:
         ],
         "analyzed_at": datetime.utcnow().isoformat(),
     }
+
+
+async def scan_contract_against_existing(contract_id: str) -> dict:
+    """Check a newly uploaded contract against all other contracts in the DB for conflicts."""
+    if not ObjectId.is_valid(contract_id):
+        return {"error": "Invalid contract ID", "total_conflicts": 0, "conflicts": []}
+
+    # Collect all OTHER contract IDs (up to 9 so total stays ≤ 10)
+    other_ids = [
+        str(c["_id"])
+        for c in contracts_collection.find(
+            {"_id": {"$ne": ObjectId(contract_id)}}, {"_id": 1}
+        ).sort("created_at", -1).limit(9)
+    ]
+
+    if not other_ids:
+        return {
+            "total_conflicts": 0,
+            "overall_risk": "low",
+            "summary": "No existing contracts to compare against — your document is conflict-free.",
+            "conflicts": [],
+            "contracts_analyzed": [],
+            "analyzed_at": datetime.utcnow().isoformat(),
+        }
+
+    return await detect_conflicts([contract_id] + other_ids)
 
 
 def _mock_draft(contract_type: str, parties: list) -> dict:

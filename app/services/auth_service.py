@@ -131,3 +131,19 @@ def deactivate_user(user_id: str) -> Optional[dict]:
         return None
 
     return get_user_by_id(user_id)
+
+
+def activate_user(user_id: str) -> Optional[dict]:
+    """Reactivate a previously deactivated user account (admin only)."""
+    if not ObjectId.is_valid(user_id):
+        return None
+
+    result = users_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"status": "active", "updated_at": datetime.utcnow()}}
+    )
+
+    if result.matched_count == 0:
+        return None
+
+    return get_user_by_id(user_id)
