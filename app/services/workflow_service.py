@@ -78,6 +78,27 @@ async def get_workflows_by_contract(contract_id: str) -> list:
     return [workflow_to_response(w) for w in workflows]
 
 
+async def get_all_workflows(user_id: str, is_admin: bool) -> dict:
+    """Return all workflows for admins/managers, or only the user's own for regular users."""
+    if is_admin:
+        workflows = workflows_collection.find({}).sort("updated_at", -1)
+        result = [workflow_to_response(w) for w in workflows]
+    else:
+        # Only workflows linked to contracts created by this user
+        user_contracts = contracts_collection.find(
+            {"created_by": user_id}, {"_id": 1}
+        )
+        contract_ids = [str(c["_id"]) for c in user_contracts]
+        if not contract_ids:
+            return {"workflows": [], "total": 0}
+        workflows = workflows_collection.find(
+            {"contract_id": {"$in": contract_ids}}
+        ).sort("updated_at", -1)
+        result = [workflow_to_response(w) for w in workflows]
+
+    return {"workflows": result, "total": len(result)}
+
+
 async def advance_workflow(workflow_id: str, user_id: str, comments: str = None) -> Optional[dict]:
     """Complete the current step and advance to the next one."""
     if not ObjectId.is_valid(workflow_id):

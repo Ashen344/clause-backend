@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
+import httpx
 from app.middleware.auth import get_current_user
 from app.models.user import UserUpdate, UserRole
 from app.services.auth_service import (
@@ -9,8 +10,28 @@ from app.services.auth_service import (
     update_user_role,
     deactivate_user,
 )
+from app.config import CLERK_SECRET_KEY
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+
+
+async def _sync_role_to_clerk(clerk_id: str, role: str) -> None:
+    """Push the updated role into Clerk's publicMetadata so the frontend sees it immediately."""
+    if not CLERK_SECRET_KEY or not clerk_id:
+        return
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.patch(
+                f"https://api.clerk.com/v1/users/{clerk_id}/metadata",
+                headers={
+                    "Authorization": f"Bearer {CLERK_SECRET_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"public_metadata": {"role": role}},
+                timeout=10,
+            )
+    except Exception:
+        pass  # Non-fatal — DB is source of truth; Clerk sync is best-effort
 
 
 @router.post("/sync")
@@ -81,6 +102,10 @@ async def change_user_role(
     user = update_user_role(user_id, role.value)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Sync the new role to Clerk public metadata so the frontend picks it up
+    await _sync_role_to_clerk(user.get("clerk_id", ""), role.value)
+
     return user
 
 

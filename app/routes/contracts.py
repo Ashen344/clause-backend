@@ -24,7 +24,7 @@ from app.services.contract_service import (
     get_dashboard_stats,
 )
 from app.config import contracts_collection
-from app.middleware.auth import get_optional_user, get_current_user_with_role
+from app.middleware.auth import get_current_user_with_role
 
 # Create a router - this groups all contract-related endpoints together
 # The prefix means all routes in this file start with /api/contracts
@@ -102,7 +102,7 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
 @router.post("/upload")
 async def upload_and_create_contract(
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_optional_user),
+    current_user: dict = Depends(get_current_user_with_role),
 ):
     """Upload a document (PDF/DOCX/TXT) and create a new draft contract from it."""
     # Validate extension
@@ -144,7 +144,7 @@ async def upload_and_create_contract(
         title = "Uploaded Contract"
 
     now = datetime.utcnow()
-    user_id = current_user["user_id"] if current_user else "upload_user"
+    user_id = current_user["user_id"]
 
     version_entry = {
         "version_number": 1,
