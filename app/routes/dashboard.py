@@ -6,42 +6,59 @@ from app.config import (
     approvals_collection,
     users_collection,
 )
-from app.middleware.auth import get_optional_user
+from app.middleware.auth import get_current_user_with_role
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
+def _user_filter(current_user: dict) -> dict:
+    """Return a MongoDB filter that scopes queries to the current user unless they are admin/manager."""
+    role = current_user.get("role", "user")
+    if role in ("admin", "manager"):
+        return {}
+    return {"created_by": current_user["user_id"]}
+
+
 @router.get("/stats")
-async def get_dashboard_stats():
-    """Get overview statistics for the dashboard."""
+async def get_dashboard_stats(current_user: dict = Depends(get_current_user_with_role)):
+    """Get overview statistics for the dashboard, scoped to the current user's contracts."""
     now = datetime.utcnow()
     thirty_days_later = now + timedelta(days=30)
+    uf = _user_filter(current_user)
 
-    # Contract counts by status
-    total = contracts_collection.count_documents({})
-    active = contracts_collection.count_documents({"status": "active"})
-    draft = contracts_collection.count_documents({"status": "draft"})
-    expired = contracts_collection.count_documents({"status": "expired"})
-    terminated = contracts_collection.count_documents({"status": "terminated"})
+    total = contracts_collection.count_documents(uf)
+    active = contracts_collection.count_documents({**uf, "status": "active"})
+    draft = contracts_collection.count_documents({**uf, "status": "draft"})
+    expired = contracts_collection.count_documents({**uf, "status": "expired"})
+    terminated = contracts_collection.count_documents({**uf, "status": "terminated"})
 
-    # Contracts expiring soon (next 30 days)
     expiring_soon = contracts_collection.count_documents({
+        **uf,
         "status": "active",
         "end_date": {"$gte": now, "$lte": thirty_days_later},
     })
 
-    # Risk summary
-    high_risk = contracts_collection.count_documents({"ai_analysis.risk_level": "high"})
-    medium_risk = contracts_collection.count_documents({"ai_analysis.risk_level": "medium"})
-    low_risk = contracts_collection.count_documents({"ai_analysis.risk_level": "low"})
+    high_risk = contracts_collection.count_documents({**uf, "risk_level": "high"})
+    medium_risk = contracts_collection.count_documents({**uf, "risk_level": "medium"})
+    low_risk = contracts_collection.count_documents({**uf, "risk_level": "low"})
 
-    # Pending approvals
-    pending_approvals = approvals_collection.count_documents({"status": "pending"})
+    # Pending approvals scoped to user's contracts
+    if uf:
+        user_contract_ids = [
+            str(c["_id"]) for c in contracts_collection.find(uf, {"_id": 1})
+        ]
+        pending_approvals = approvals_collection.count_documents({
+            "status": "pending",
+            "contract_id": {"$in": user_contract_ids},
+        })
+        active_workflows = workflows_collection.count_documents({
+            "status": "active",
+            "contract_id": {"$in": user_contract_ids},
+        })
+    else:
+        pending_approvals = approvals_collection.count_documents({"status": "pending"})
+        active_workflows = workflows_collection.count_documents({"status": "active"})
 
-    # Active workflows
-    active_workflows = workflows_collection.count_documents({"status": "active"})
-
-    # Total users
     total_users = users_collection.count_documents({})
 
     return {
@@ -63,9 +80,11 @@ async def get_dashboard_stats():
 
 
 @router.get("/contracts-by-type")
-async def contracts_by_type():
-    """Get contract count grouped by type (for pie chart)."""
+async def contracts_by_type(current_user: dict = Depends(get_current_user_with_role)):
+    """Get contract count grouped by type, scoped to the current user."""
+    uf = _user_filter(current_user)
     pipeline = [
+        *([ {"$match": uf} ] if uf else []),
         {"$group": {"_id": "$contract_type", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
@@ -74,9 +93,11 @@ async def contracts_by_type():
 
 
 @router.get("/contracts-by-status")
-async def contracts_by_status():
-    """Get contract count grouped by status (for bar chart)."""
+async def contracts_by_status(current_user: dict = Depends(get_current_user_with_role)):
+    """Get contract count grouped by status, scoped to the current user."""
+    uf = _user_filter(current_user)
     pipeline = [
+        *([ {"$match": uf} ] if uf else []),
         {"$group": {"_id": "$status", "count": {"$sum": 1}}},
         {"$sort": {"_id": 1}},
     ]
@@ -85,12 +106,14 @@ async def contracts_by_status():
 
 
 @router.get("/expiring-soon")
-async def expiring_soon_contracts():
-    """Get contracts expiring within the next 30 days."""
+async def expiring_soon_contracts(current_user: dict = Depends(get_current_user_with_role)):
+    """Get contracts expiring within the next 30 days, scoped to the current user."""
     now = datetime.utcnow()
     thirty_days_later = now + timedelta(days=30)
+    uf = _user_filter(current_user)
 
     contracts = contracts_collection.find({
+        **uf,
         "status": "active",
         "end_date": {"$gte": now, "$lte": thirty_days_later},
     }).sort("end_date", 1).limit(20)
@@ -110,11 +133,13 @@ async def expiring_soon_contracts():
 
 
 @router.get("/recent-activity")
-async def recent_activity():
-    """Get recently updated contracts."""
+async def recent_activity(current_user: dict = Depends(get_current_user_with_role)):
+    """Get recently updated contracts, scoped to the current user."""
+    uf = _user_filter(current_user)
+
     contracts = (
         contracts_collection
-        .find()
+        .find(uf)
         .sort("updated_at", -1)
         .limit(10)
     )
@@ -133,9 +158,11 @@ async def recent_activity():
 
 
 @router.get("/monthly-stats")
-async def monthly_contract_stats():
-    """Get contract creation stats by month (for charts)."""
+async def monthly_contract_stats(current_user: dict = Depends(get_current_user_with_role)):
+    """Get contract creation stats by month, scoped to the current user."""
+    uf = _user_filter(current_user)
     pipeline = [
+        *([ {"$match": uf} ] if uf else []),
         {
             "$group": {
                 "_id": {
