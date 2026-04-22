@@ -32,6 +32,42 @@ from app.middleware.auth import get_current_user_with_role
 router = APIRouter(prefix="/api/contracts", tags=["Contracts"])
 
 
+# GET /api/contracts/lifecycle-stats – counts for each lifecycle category
+@router.get("/lifecycle-stats")
+async def lifecycle_stats(current_user: dict = Depends(get_current_user_with_role)):
+    """Return contract counts for each lifecycle category, scoped to the current user."""
+    from datetime import timezone
+    role = current_user.get("role", "user")
+    is_admin = role in ("admin", "manager")
+    uf = {} if is_admin else {"created_by": current_user["user_id"]}
+
+    now = datetime.utcnow()
+    thirty_days_ago = now - timedelta(days=30)
+    ninety_days_ahead = now + timedelta(days=90)
+
+    def count(extra: dict) -> int:
+        return contracts_collection.count_documents({**uf, **extra})
+
+    pending_approval   = count({"workflow_stage": "approval",  "status": {"$nin": ["expired", "terminated"]}})
+    pending_negotiation = count({"workflow_stage": "review",   "status": {"$nin": ["expired", "terminated"]}})
+    pending_signing    = count({"workflow_stage": "execution", "status": {"$nin": ["expired", "terminated"]}})
+    waiting_to_active  = count({"status": "draft", "workflow_stage": {"$nin": ["request", None, ""]}})
+    became_active      = count({"status": "active", "updated_at": {"$gte": thirty_days_ago}})
+    upcoming_renewals  = count({
+        "status": "active",
+        "end_date": {"$gte": now, "$lte": ninety_days_ahead},
+    })
+
+    return {
+        "pending_approval":    pending_approval,
+        "pending_negotiation": pending_negotiation,
+        "pending_signing":     pending_signing,
+        "waiting_to_active":   waiting_to_active,
+        "became_active":       became_active,
+        "upcoming_renewals":   upcoming_renewals,
+    }
+
+
 # POST /api/contracts - Create a new contract
 @router.post("/", response_model=None)
 async def create_new_contract(

@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
+from datetime import datetime
+from bson import ObjectId
 from app.middleware.auth import get_current_user_with_role
-from app.models.workflow import WorkflowCreate
+from app.models.workflow import WorkflowCreate, WorkflowTemplateCreate, WorkflowTemplateUpdate
 from app.services.workflow_service import (
     create_workflow,
     get_workflow,
@@ -10,6 +12,7 @@ from app.services.workflow_service import (
     advance_workflow,
     reject_workflow,
 )
+from app.config import workflow_templates_collection
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
@@ -105,6 +108,95 @@ async def advance_workflow_step(
     if not result:
         raise HTTPException(status_code=400, detail="Cannot advance workflow. It may be completed or cancelled.")
     return result
+
+
+# ── Workflow Templates ────────────────────────────────────────────────────────
+
+def _tpl_to_response(tpl: dict) -> dict:
+    tpl["id"] = str(tpl["_id"])
+    del tpl["_id"]
+    return tpl
+
+
+@router.get("/templates")
+async def list_workflow_templates(current_user: dict = Depends(get_current_user_with_role)):
+    """List all workflow templates (visible to all authenticated users)."""
+    templates = list(workflow_templates_collection.find({}).sort("created_at", -1))
+    return {"templates": [_tpl_to_response(t) for t in templates]}
+
+
+@router.post("/templates")
+async def create_workflow_template(
+    data: WorkflowTemplateCreate,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Create a new reusable workflow template (admin/manager only)."""
+    _require_admin_or_manager(current_user)
+    doc = {
+        **data.model_dump(),
+        "created_by": current_user["user_id"],
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+    # Ensure step numbers are sequential
+    for i, step in enumerate(doc["steps"]):
+        step["step_number"] = i + 1
+    result = workflow_templates_collection.insert_one(doc)
+    created = workflow_templates_collection.find_one({"_id": result.inserted_id})
+    return _tpl_to_response(created)
+
+
+@router.get("/templates/{template_id}")
+async def get_workflow_template(
+    template_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Get a single workflow template."""
+    if not ObjectId.is_valid(template_id):
+        raise HTTPException(status_code=404, detail="Template not found")
+    tpl = workflow_templates_collection.find_one({"_id": ObjectId(template_id)})
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return _tpl_to_response(tpl)
+
+
+@router.put("/templates/{template_id}")
+async def update_workflow_template(
+    template_id: str,
+    data: WorkflowTemplateUpdate,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Update a workflow template (admin/manager only)."""
+    _require_admin_or_manager(current_user)
+    if not ObjectId.is_valid(template_id):
+        raise HTTPException(status_code=404, detail="Template not found")
+    update = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
+    if "steps" in update:
+        for i, step in enumerate(update["steps"]):
+            step["step_number"] = i + 1
+    update["updated_at"] = datetime.utcnow()
+    result = workflow_templates_collection.update_one(
+        {"_id": ObjectId(template_id)}, {"$set": update}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    tpl = workflow_templates_collection.find_one({"_id": ObjectId(template_id)})
+    return _tpl_to_response(tpl)
+
+
+@router.delete("/templates/{template_id}")
+async def delete_workflow_template(
+    template_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Delete a workflow template (admin/manager only)."""
+    _require_admin_or_manager(current_user)
+    if not ObjectId.is_valid(template_id):
+        raise HTTPException(status_code=404, detail="Template not found")
+    result = workflow_templates_collection.delete_one({"_id": ObjectId(template_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"message": "Template deleted"}
 
 
 @router.post("/{workflow_id}/reject")

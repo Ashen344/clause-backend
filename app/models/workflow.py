@@ -70,7 +70,35 @@ class WorkflowResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
 
-# Default workflow steps for standard contract processing
+# ── Workflow Templates (custom reusable workflows) ────────────────────────────
+
+class WorkflowTemplateStep(BaseModel):
+    """A single step definition inside a reusable workflow template."""
+    step_number: int
+    name: str
+    step_type: StepType
+    description: Optional[str] = None
+
+
+class WorkflowTemplateCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    steps: List[WorkflowTemplateStep]
+
+
+class WorkflowTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    steps: Optional[List[WorkflowTemplateStep]] = None
+
+
+class WorkflowTemplateInDB(WorkflowTemplateCreate):
+    created_by: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── Default workflow steps for standard contract processing ───────────────────
 DEFAULT_WORKFLOW_STEPS = [
     WorkflowStep(step_number=1, name="Request & Initiation", step_type=StepType.review),
     WorkflowStep(step_number=2, name="Authoring & Drafting", step_type=StepType.review),
