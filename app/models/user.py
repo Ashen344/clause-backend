@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
@@ -57,3 +57,55 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     organization: Optional[str] = None
     role: Optional[UserRole] = None          # Only admins should be able to change this
+
+
+# ─── Dashboard Customisation Preferences ─────────────────────────────────────
+
+# Available accent colors the user can pick
+class AccentColor(str, Enum):
+    indigo  = "indigo"   # default
+    violet  = "violet"
+    cyan    = "cyan"
+    emerald = "emerald"
+    rose    = "rose"
+    amber   = "amber"
+
+
+# Available theme presets
+class ThemePreset(str, Enum):
+    dark_navy  = "dark_navy"   # default — current look
+    oled       = "oled"        # pure black
+    soft_dark  = "soft_dark"   # grey-toned dark
+    light      = "light"       # white / light mode
+
+
+# Available dashboard stat widgets
+class DashboardWidget(str, Enum):
+    total_contracts   = "total_contracts"
+    active_contracts  = "active_contracts"
+    expiring_soon     = "expiring_soon"
+    high_risk         = "high_risk"
+    draft_contracts   = "draft_contracts"
+    pending_approvals = "pending_approvals"
+
+
+# The full preferences object stored per user
+class UserPreferences(BaseModel):
+    # Which stat cards are visible on the dashboard (all shown by default)
+    visible_widgets: List[DashboardWidget] = [
+        DashboardWidget.total_contracts,
+        DashboardWidget.active_contracts,
+        DashboardWidget.expiring_soon,
+        DashboardWidget.high_risk,
+    ]
+
+    # Default status filter on the contracts list page
+    # None means "show all" (the default)
+    default_contract_filter: Optional[str] = None   # e.g. "active", "draft", "expired"
+
+    # Pinned contract IDs — shown as quick-access at top of dashboard (max 5)
+    pinned_contracts: List[str] = []
+
+    # UI theme
+    accent_color: AccentColor = AccentColor.indigo
+    theme: ThemePreset = ThemePreset.dark_navy
