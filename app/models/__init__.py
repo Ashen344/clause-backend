@@ -10,3 +10,9 @@ from app.models.approval import ApprovalStatus, ApprovalDecision, ApproverVote, 
 from app.models.template import TemplateField, TemplateCreate, TemplateUpdate
 from app.models.audit_log import AuditAction, AuditLogCreate
 from app.models.notification import NotificationType, NotificationCreate
+from app.models.report import (
+    ReportDimension, ReportMeasure, ReportChartType, ReportSortOrder,
+    ReportFilter, ReportDefinition, ReportCreate, ReportUpdate,
+    ReportColumn, ReportSummary, ReportResult,
+    OutlierRequest, TrendRequest, ExportRequest,
+)

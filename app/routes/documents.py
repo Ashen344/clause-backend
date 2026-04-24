@@ -1,5 +1,7 @@
 import os
 import uuid
+import httpx
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse
@@ -7,6 +9,10 @@ from bson import ObjectId
 from pydantic import BaseModel
 from app.config import contracts_collection
 from app.middleware.auth import get_current_user, get_optional_user
+from app.routes.wopi import make_wopi_token
+
+COLLABORA_INTERNAL_URL = os.getenv("COLLABORA_URL", "http://localhost:9980")
+WOPI_BASE_URL = os.getenv("WOPI_BASE_URL", "http://host.docker.internal:8000")
 
 MIME_MAP = {
     ".pdf": "application/pdf",
@@ -285,6 +291,86 @@ async def save_document_text(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     return {"message": "Text saved successfully"}
+
+
+@router.get("/wopi-url/{contract_id}")
+async def get_wopi_url(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the Collabora Online editor URL for the contract's latest document.
+
+    The frontend embeds this URL in an iframe to open LibreOffice in the browser.
+    Collabora calls back to /wopi/files/{contract_id} to read and save the file.
+    """
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=400, detail="Invalid contract ID")
+
+    contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    versions = contract.get("versions", [])
+    if not versions:
+        raise HTTPException(status_code=404, detail="No document attached to this contract")
+
+    latest = versions[-1]
+    file_type = latest.get("file_type", ".docx").lstrip(".")
+    token = make_wopi_token(contract_id)
+
+    # The WOPI source URL must be reachable from inside the Collabora Docker container.
+    # host.docker.internal resolves to the Windows host from within WSL/Docker.
+    wopi_src = f"{WOPI_BASE_URL}/wopi/files/{contract_id}?access_token={token}"
+
+    # Fetch Collabora's discovery XML to get the correct action URL for this file type.
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{COLLABORA_INTERNAL_URL}/hosting/discovery")
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cannot reach Collabora at {COLLABORA_INTERNAL_URL}: {exc}",
+        )
+
+    # Find the edit action URL for the requested file extension
+    action_url = None
+    for app_el in root.findall(".//app"):
+        if app_el.get("name", "").lower() in (file_type, f"application/vnd.{file_type}"):
+            for action in app_el.findall("action"):
+                if action.get("name") == "edit":
+                    action_url = action.get("urlsrc")
+                    break
+        if action_url:
+            break
+
+    # Fallback: search all edit actions and pick the first docx/odt match
+    if not action_url:
+        for action in root.findall(".//action[@name='edit']"):
+            ext = action.get("ext", "")
+            if ext in (file_type, "docx", "odt"):
+                action_url = action.get("urlsrc")
+                break
+
+    if not action_url:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Collabora has no edit action for file type '.{file_type}'",
+        )
+
+    # Collabora action URLs end with "?" or contain template params — append WOPISrc
+    from urllib.parse import quote
+    if "?" in action_url:
+        editor_url = f"{action_url}WOPISrc={quote(wopi_src, safe='')}"
+    else:
+        editor_url = f"{action_url}?WOPISrc={quote(wopi_src, safe='')}"
+
+    return {
+        "editor_url": editor_url,
+        "file_type": file_type,
+        "filename": latest.get("original_filename", "document"),
+    }
 
 
 @router.delete("/{contract_id}/{version_number}")

@@ -9,6 +9,8 @@ from app.services.ai_service import (
     ai_chat,
     detect_conflicts,
     scan_contract_against_existing,
+    embed_and_analyze,
+    bulk_embed_contracts,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
@@ -37,6 +39,13 @@ class ChatRequest(BaseModel):
     question: str
     history: Optional[List[ChatHistoryMessage]] = []
     mode: Optional[str] = "general"
+
+
+class EmbedAndAnalyzeRequest(BaseModel):
+    text: str
+    file_name: str = "upload"
+    question: str = "Summarize the key information in this document."
+    session_id: Optional[str] = None
 
 
 @router.post("/analyze/text")
@@ -101,5 +110,49 @@ async def chat_with_ai(request: ChatRequest):
         contract_id=request.contract_id or "",
         question=request.question,
         history=history,
+    )
+    return result
+
+
+@router.post("/embed-and-analyze")
+async def embed_and_analyze_document(request: EmbedAndAnalyzeRequest):
+    """Upload a document's text for embedding into the knowledge base and
+    AI-powered analysis.
+
+    The agent service will:
+    1. Chunk the text and embed it into Elasticsearch
+    2. Search the KB for relevant context
+    3. Use Ollama + Gemini to produce a structured analysis
+    """
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="Document text cannot be empty")
+
+    result = await embed_and_analyze(
+        text=request.text,
+        file_name=request.file_name,
+        question=request.question,
+        session_id=request.session_id,
+    )
+    return result
+
+
+class BulkEmbedRequest(BaseModel):
+    force: bool = False
+    batch_size: int = 20
+
+
+@router.post("/embed-all")
+async def embed_all_contracts(
+    request: BulkEmbedRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Embed all contracts from MongoDB into the Elasticsearch knowledge base.
+
+    Skips contracts already marked as embedded unless force=True.
+    Returns a summary with succeeded/skipped/failed counts.
+    """
+    result = await bulk_embed_contracts(
+        force=request.force,
+        batch_size=max(1, min(request.batch_size, 50)),
     )
     return result

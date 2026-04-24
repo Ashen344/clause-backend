@@ -21,7 +21,26 @@
       "Bash(curl -s http://localhost:8000/api/contracts)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''contracts:'''', d.get\\(''''total'''', 0\\)\\)\")",
       "Bash(curl -sv http://localhost:8000/api/contracts)",
-      "Bash(curl -s http://localhost:8000/api/contracts/)"
+      "Bash(curl -s http://localhost:8000/api/contracts/)",
+      "Bash(pip install *)",
+      "Bash(python -m uvicorn app.main:app --reload --port 8000)",
+      "Bash(npm run *)",
+      "Bash(where.exe docker *)",
+      "Read(//c/ProgramData/**)",
+      "Bash(wsl -d Ubuntu ls /home/thevindu/clm_project/)",
+      "PowerShell(wsl -d Ubuntu ls /home/thevindu/clm_project/)",
+      "PowerShell(wsl -d Ubuntu cat /home/thevindu/clm_project/docker-compose.yml)",
+      "PowerShell(wsl -d Ubuntu ls /home/thevindu/clm_project/agents/)",
+      "PowerShell(wsl -d Ubuntu head -30 /home/thevindu/clm_project/agents/main.py)",
+      "PowerShell(wsl -d Ubuntu grep -n \"port\\\\|uvicorn\\\\|8000\\\\|8001\" /home/thevindu/clm_project/agents/main.py)",
+      "PowerShell(tail -20)",
+      "PowerShell(wsl -d Ubuntu cat /home/thevindu/clm_project/agents/Dockerfile)",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cat /home/thevindu/clm_project/.env\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"ls /home/thevindu/clm_project/injest/secrets/ 2>/dev/null && echo 'secrets exist' || echo 'no secrets dir'\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"ls /home/thevindu/clm_project/injest/\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"ls /home/thevindu/clm_project/injest/secrets/\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"sudo ls /home/thevindu/clm_project/injest/secrets/\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"docker compose -f /home/thevindu/clm_project/docker-compose.yml --project-directory /home/thevindu/clm_project ps 2>&1\")"
     ]
   }
 }

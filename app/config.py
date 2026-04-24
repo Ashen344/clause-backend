@@ -28,6 +28,12 @@ FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
 SMTP_EMAIL    = os.getenv("SMTP_EMAIL", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
+# AI Agent Platform URL — the separate agent microservice that handles all
+# AI operations (RAG, Gemini, Ollama, Claude, knowledge-base search, etc.).
+# In Docker Compose this is set to http://agents:8000; for local dev default
+# to localhost:8001.
+AI_PLATFORM_URL = os.getenv("AI_PLATFORM_URL", "http://localhost:8001")
+
 # Create the MongoDB client connection
 client = MongoClient(MONGODB_URI)
 
@@ -43,3 +49,4 @@ templates_collection = db["templates"]
 workflows_collection = db["workflows"]
 approvals_collection = db["approvals"]
 calendar_tokens_collection = db["calendar_tokens"]
+reports_collection = db["reports"]

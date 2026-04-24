@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(wsl -d Ubuntu -- bash -c \"docker compose -f /home/thevindu/clm_project/docker-compose.yml -f /home/thevindu/clm_project/docker-compose.override.yml ps agents\")"
+    ]
+  }
+}
