@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 import httpx
 from app.middleware.auth import get_current_user
-from app.models.user import UserUpdate, UserRole
+from app.models.user import UserUpdate, UserRole, UserPreferences
 from app.services.auth_service import (
     get_or_create_user,
     get_user_by_clerk_id,
@@ -9,6 +9,8 @@ from app.services.auth_service import (
     get_all_users,
     update_user_role,
     deactivate_user,
+    get_preferences,
+    save_preferences,
     activate_user,
 )
 from tests.config import CLERK_SECRET_KEY
@@ -147,7 +149,34 @@ async def update_my_profile(
     return user
 
 
-# --- Admin endpoints ---
+# ─── Preferences endpoints ────────────────────────────────────────────────────
+
+@router.get("/me/preferences")
+async def get_my_preferences(current_user: dict = Depends(get_current_user)):
+    """Get the current user's dashboard preferences."""
+    return get_preferences(current_user["user_id"])
+
+
+@router.put("/me/preferences")
+async def update_my_preferences(
+    preferences: UserPreferences,
+    current_user: dict = Depends(get_current_user),
+):
+    """Save the current user's dashboard preferences.
+    Covers: visible widgets, default contract filter,
+    pinned contracts (max 5), accent color, theme.
+    """
+    prefs_dict = preferences.model_dump()
+    # Convert enums to their string values for MongoDB storage
+    prefs_dict["visible_widgets"] = [w.value for w in preferences.visible_widgets]
+    prefs_dict["accent_color"] = preferences.accent_color.value
+    prefs_dict["theme"] = preferences.theme.value
+
+    saved = save_preferences(current_user["user_id"], prefs_dict)
+    return saved
+
+
+# ─── Admin endpoints ──────────────────────────────────────────────────────────
 
 @router.get("/users")
 async def list_users(

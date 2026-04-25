@@ -17,7 +17,6 @@ def get_or_create_user(clerk_id: str, email: str, full_name: str) -> dict:
     existing = users_collection.find_one({"clerk_id": clerk_id})
 
     if existing:
-        # Update last login
         users_collection.update_one(
             {"_id": existing["_id"]},
             {"$set": {"last_login": datetime.utcnow()}}
@@ -25,7 +24,6 @@ def get_or_create_user(clerk_id: str, email: str, full_name: str) -> dict:
         existing["last_login"] = datetime.utcnow()
         return user_to_response(existing)
 
-    # Create new user
     new_user = {
         "clerk_id": clerk_id,
         "email": email,
@@ -68,12 +66,10 @@ def update_user(clerk_id: str, update_data: UserUpdate) -> Optional[dict]:
         return get_user_by_clerk_id(clerk_id)
 
     update_dict["updated_at"] = datetime.utcnow()
-
     users_collection.update_one(
         {"clerk_id": clerk_id},
         {"$set": update_dict}
     )
-
     return get_user_by_clerk_id(clerk_id)
 
 
@@ -147,3 +143,60 @@ def activate_user(user_id: str) -> Optional[dict]:
         return None
 
     return get_user_by_id(user_id)
+
+
+# ─── Dashboard Preferences ────────────────────────────────────────────
+
+def _default_preferences() -> dict:
+    """Returns the default preferences for a new user."""
+    return {
+        "visible_widgets": [
+            "total_contracts",
+            "active_contracts",
+            "expiring_soon",
+            "high_risk",
+        ],
+        "default_contract_filter": None,
+        "pinned_contracts": [],
+        "accent_color": "indigo",
+        "theme": "light",
+    }
+
+
+def get_preferences(clerk_id: str) -> dict:
+    """Get the user's dashboard preferences."""
+    user = users_collection.find_one({"clerk_id": clerk_id})
+    if not user:
+        return _default_preferences()
+
+    stored = user.get("preferences")
+
+    if not stored:
+        return _default_preferences()
+
+    merged = {**_default_preferences(), **stored}
+
+    if not merged.get("visible_widgets"):
+        merged["visible_widgets"] = _default_preferences()["visible_widgets"]
+
+    return merged
+
+
+def save_preferences(clerk_id: str, preferences: dict) -> dict:
+    """Save the user's dashboard preferences."""
+
+    if "pinned_contracts" in preferences:
+        preferences["pinned_contracts"] = preferences["pinned_contracts"][:5]
+
+    if not preferences.get("visible_widgets"):
+        preferences["visible_widgets"] = _default_preferences()["visible_widgets"]
+
+    users_collection.update_one(
+        {"clerk_id": clerk_id},
+        {"$set": {
+            "preferences": preferences,
+            "updated_at": datetime.utcnow(),
+        }}
+    )
+
+    return preferences
