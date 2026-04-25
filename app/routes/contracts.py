@@ -25,6 +25,8 @@ from app.services.contract_service import (
 )
 from app.config import contracts_collection
 from app.middleware.auth import get_current_user_with_role
+from app.services.audit_service import create_audit_log
+from app.models.audit_log import AuditAction
 
 # Create a router - this groups all contract-related endpoints together
 # The prefix means all routes in this file start with /api/contracts
@@ -39,6 +41,14 @@ async def create_new_contract(
     current_user: dict = Depends(get_current_user_with_role),
 ):
     result = await create_contract(contract, user_id=current_user["user_id"])
+    create_audit_log(
+        action=AuditAction.create,
+        resource_type="contract",
+        resource_id=result.get("id", ""),
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract created: {contract.title}",
+    )
     return result
 
 
@@ -73,6 +83,37 @@ async def list_contracts(
 @router.get("/dashboard")
 async def dashboard_statistics():
     return await get_dashboard_stats()
+
+
+# GET /api/contracts/lifecycle-stats — per-user lifecycle category counts
+@router.get("/lifecycle-stats")
+async def lifecycle_stats(
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """
+    Return counts for the six contract lifecycle categories.
+    Admins/managers see all contracts; regular users see only their own.
+    """
+    from datetime import timezone
+    role     = current_user.get("role", "user")
+    is_admin = role in ("admin", "manager")
+    uf       = {} if is_admin else {"created_by": current_user["user_id"]}
+
+    now               = datetime.utcnow()
+    thirty_days_ago   = now - timedelta(days=30)
+    ninety_days_ahead = now + timedelta(days=90)
+
+    def count(extra: dict) -> int:
+        return contracts_collection.count_documents({**uf, **extra})
+
+    return {
+        "pending_approval":   count({"workflow_stage": "approval",  "status": {"$nin": ["expired", "terminated"]}}),
+        "pending_negotiation": count({"workflow_stage": "review",   "status": {"$nin": ["expired", "terminated"]}}),
+        "pending_signing":    count({"workflow_stage": "execution", "status": {"$nin": ["expired", "terminated"]}}),
+        "waiting_to_active":  count({"status": "draft", "workflow_stage": {"$nin": ["request", None, ""]}}),
+        "became_active":      count({"status": "active", "updated_at": {"$gte": thirty_days_ago}}),
+        "upcoming_renewals":  count({"status": "active", "end_date":   {"$gte": now, "$lte": ninety_days_ahead}}),
+    }
 
 
 # POST /api/contracts/upload - Upload a document and create a draft contract from it
@@ -189,6 +230,15 @@ async def upload_and_create_contract(
     contract_doc["id"] = str(result.inserted_id)
     del contract_doc["_id"]
 
+    create_audit_log(
+        action=AuditAction.file_upload,
+        resource_type="contract",
+        resource_id=contract_doc["id"],
+        user_id=user_id,
+        user_email=current_user.get("email"),
+        details=f"Document uploaded: {original_name}",
+    )
+
     return {
         "id": contract_doc["id"],
         "contract": contract_doc,
@@ -225,6 +275,14 @@ async def update_existing_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     contract = await update_contract(contract_id, update_data)
+    create_audit_log(
+        action=AuditAction.update,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract updated: {existing.get('title', contract_id)}",
+    )
     return contract
 
 
@@ -240,6 +298,14 @@ async def delete_existing_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     await delete_contract(contract_id)
+    create_audit_log(
+        action=AuditAction.delete,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract deleted: {existing.get('title', contract_id)}",
+    )
     return {"message": "Contract deleted successfully"}
 
 
@@ -256,4 +322,12 @@ async def change_workflow_stage(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     contract = await update_workflow_stage(contract_id, stage.value)
+    create_audit_log(
+        action=AuditAction.status_change,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Workflow stage changed to: {stage.value} on contract: {existing.get('title', contract_id)}",
+    )
     return contract

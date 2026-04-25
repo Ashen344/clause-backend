@@ -1,0 +1,66 @@
+DATA PROCESSING AGREEMENT
+ Contract No: CLM-2026-0069999999999
+ 
+Effective Date: January 12, 2026
+MediCare Digital Health (Pvt) Ltd, No. 90, Ward Place, Colombo 07 ("Data Controller"),
+ AND
+ SecureProcess Technologies (Pvt) Ltd, No. 17, Horton Place, Colombo 07 ("Data Processor").
+1. BACKGROUND
+The Data Controller operates a digital health platform serving approximately 45,000 registered patients
+and 320 healthcare providers across 28 medical facilities in the Western Province. The Data Processor
+provides cloud-based data analytics and reporting services to the Data Controller. This Agreement
+governs the processing of personal and sensitive health data.
+2. CATEGORIES OF DATA
+The Data Processor shall process the following categories of personal data: (a) Patient demographic
+information (name, NIC, date of birth, address, contact details), (b) Medical records including
+diagnoses, prescriptions, lab results, and treatment histories, (c) Health insurance and billing
+information, (d) Healthcare provider credentials and practice information, (e) Appointment and
+scheduling data, and (f) Anonymized aggregate health statistics for reporting purposes.
+3. PROCESSING OBLIGATIONS
+The Data Processor shall: (i) Process personal data only on documented instructions from the Data
+Controller, (ii) Ensure all personnel processing data are bound by confidentiality obligations, (iii)
+Implement appropriate technical and organizational security measures including AES-256 encryption at
+rest, TLS 1.3 in transit, and role-based access controls, (iv) Not engage sub-processors without prior
+written authorization, (v) Assist the Data Controller in responding to data subject access requests within
+72 hours, (vi) Delete or return all personal data upon termination of services.
+4. SECURITY MEASURES
+Measure
+Standard
+Audit Frequency
+Encryption at Rest
+AES-256
+Continuous
+Encryption in Transit
+TLS 1.3
+Continuous
+Access Control
+RBAC + MFA
+Quarterly
+Vulnerability Scanning
+OWASP Top 10
+Monthly
+Penetration Testing
+External Certified
+Annually
+Backup & Recovery
+RPO: 1hr, RTO: 4hr
+Quarterly DR Test
+5. BREACH NOTIFICATION
+In the event of a personal data breach, the Data Processor shall: (a) Notify the Data Controller within 24
+hours of becoming aware of the breach, (b) Provide a detailed incident report within 48 hours including
+
+
+nature of breach, categories of data affected, estimated number of data subjects affected, and
+measures taken to mitigate the breach, (c) Cooperate fully with the Data Controller and relevant
+authorities in investigating and remediating the breach.
+6. CONTRACT TERM
+This Agreement shall be effective from January 5, 2026 and shall remain in effect for 24 months until
+January 4, 2028. Monthly processing fee: LKR 850,000. Total contract value: LKR 20,400,000.
+MediCare Digital Health (Pvt) Ltd
+_________________________
+Dr. Chaminda Rathnayake, Chief Medical Officer
+Date: January 5, 2026
+SecureProcess Technologies (Pvt) Ltd
+_________________________
+Iresha Samarawickrama, Chief Data Officer
+Date: January 5, 2026

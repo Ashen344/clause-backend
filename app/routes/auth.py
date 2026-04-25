@@ -12,6 +12,8 @@ from app.services.auth_service import (
     activate_user,
 )
 from app.config import CLERK_SECRET_KEY
+from app.services.audit_service import create_audit_log
+from app.models.audit_log import AuditAction
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -122,10 +124,22 @@ async def sync_user(current_user: dict = Depends(get_current_user)):
 
 @router.get("/me")
 async def get_my_profile(current_user: dict = Depends(get_current_user)):
-    """Get the currently authenticated user's profile."""
-    user = get_user_by_clerk_id(current_user["user_id"])
+    """Get the currently authenticated user's profile.
+    Auto-syncs (creates the DB record) if the user hasn't called /sync yet,
+    so /me never returns 404 for a valid Clerk session."""
+    clerk_id = current_user["user_id"]
+    user = get_user_by_clerk_id(clerk_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User profile not found. Please sync first.")
+        # Lazy-sync: fetch profile from Clerk and create the DB record on the fly
+        clerk_profile = await _fetch_clerk_user(clerk_id)
+        if clerk_profile:
+            profile   = _extract_clerk_profile(clerk_profile)
+            email     = profile["email"]     or current_user.get("email", "")
+            full_name = profile["full_name"] or f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()
+        else:
+            email     = current_user.get("email", "")
+            full_name = f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()
+        user = get_or_create_user(clerk_id=clerk_id, email=email, full_name=full_name)
     return user
 
 
@@ -266,6 +280,15 @@ async def change_user_role(
     # Sync the new role to Clerk public metadata so the frontend picks it up instantly
     await _sync_role_to_clerk(user.get("clerk_id", ""), role.value)
 
+    create_audit_log(
+        action=AuditAction.update,
+        resource_type="user",
+        resource_id=str(mongo_id),
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"User role changed to '{role.value}' for user {user.get('email', str(mongo_id))}",
+    )
+
     return user
 
 
@@ -287,6 +310,14 @@ async def deactivate_user_account(
     user = deactivate_user(str(mongo_id))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    create_audit_log(
+        action=AuditAction.status_change,
+        resource_type="user",
+        resource_id=str(mongo_id),
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"User deactivated: {user.get('email', str(mongo_id))}",
+    )
     return user
 
 
@@ -308,4 +339,12 @@ async def activate_user_account(
     user = activate_user(str(mongo_id))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    create_audit_log(
+        action=AuditAction.status_change,
+        resource_type="user",
+        resource_id=str(mongo_id),
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"User activated: {user.get('email', str(mongo_id))}",
+    )
     return user

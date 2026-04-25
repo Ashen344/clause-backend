@@ -8,7 +8,7 @@ from app.services.notification_service import (
     get_unread_count,
 )
 from app.services.email_service import send_test_email, scan_and_send_expiry_alerts
-from app.config import SMTP_EMAIL
+import os
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
@@ -67,9 +67,10 @@ async def mark_all_notifications_read(
 @router.get("/email-config")
 async def get_email_config(current_user: dict = Depends(get_current_user)):
     """Return whether SMTP email is configured (never expose the password)."""
+    smtp_email = os.getenv("SMTP_EMAIL", "")
     return {
-        "configured": bool(SMTP_EMAIL),
-        "smtp_email": SMTP_EMAIL if SMTP_EMAIL else None,
+        "configured": bool(smtp_email),
+        "smtp_email": smtp_email if smtp_email else None,
     }
 
 
@@ -81,12 +82,9 @@ async def send_test_email_endpoint(
     """Send a test email to verify SMTP configuration."""
     if not body.to_email:
         raise HTTPException(status_code=400, detail="to_email is required")
-    ok = send_test_email(body.to_email)
+    ok, error_msg = send_test_email(body.to_email)
     if not ok:
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to send email. Check SMTP_EMAIL and SMTP_PASSWORD in your .env file.",
-        )
+        raise HTTPException(status_code=503, detail=error_msg)
     return {"message": f"Test email sent to {body.to_email}"}
 
 

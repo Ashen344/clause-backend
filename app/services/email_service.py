@@ -11,8 +11,19 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from app.config import SMTP_EMAIL, SMTP_PASSWORD, contracts_collection, notifications_collection
+import os
+from app.config import contracts_collection, notifications_collection
 from bson import ObjectId
+
+
+def _smtp_email() -> str:
+    """Read SMTP_EMAIL fresh from the environment every time (never stale)."""
+    return os.getenv("SMTP_EMAIL", "")
+
+
+def _smtp_password() -> str:
+    """Read SMTP_PASSWORD fresh from the environment every time (never stale)."""
+    return os.getenv("SMTP_PASSWORD", "")
 
 
 # ── HTML email templates ──────────────────────────────────────────────────────
@@ -120,31 +131,69 @@ def _workflow_update_html(contract_title: str, stage: str, status: str, contract
 
 # ── Core send function ────────────────────────────────────────────────────────
 
-def send_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Send an HTML email via Gmail SMTP. Returns True on success."""
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print("[email_service] SMTP_EMAIL or SMTP_PASSWORD not configured — skipping email.")
-        return False
+def send_email(to_email: str, subject: str, html_body: str) -> tuple[bool, str]:
+    """Send an HTML email via Gmail SMTP. Returns (success, error_message)."""
+    smtp_email    = _smtp_email()
+    smtp_password = _smtp_password()
 
+    if not smtp_email or not smtp_password:
+        msg = "SMTP_EMAIL or SMTP_PASSWORD is not set in your .env file."
+        print(f"[email_service] {msg}")
+        return False, msg
+
+    msg_obj = MIMEMultipart("alternative")
+    msg_obj["Subject"] = subject
+    msg_obj["From"]    = f"Clause CLM <{smtp_email}>"
+    msg_obj["To"]      = to_email
+    msg_obj.attach(MIMEText(html_body, "html"))
+
+    context = ssl.create_default_context()
+    last_error = ""
+
+    # Try port 465 (SSL) first — more reliable on restrictive networks
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = f"Clause CLM <{SMTP_EMAIL}>"
-        msg["To"]      = to_email
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg_obj.as_string())
+        print(f"[email_service] Email sent to {to_email} via port 465")
+        return True, ""
+    except smtplib.SMTPAuthenticationError:
+        error = (
+            "Gmail authentication failed (port 465). Your App Password is incorrect or expired. "
+            "Go to myaccount.google.com/apppasswords, delete the old password and generate a new one, "
+            "then update SMTP_PASSWORD in your .env file."
+        )
+        print(f"[email_service] {error}")
+        return False, error
+    except Exception as e:
+        last_error = str(e)
+        print(f"[email_service] Port 465 failed: {e} — trying port 587...")
 
-        msg.attach(MIMEText(html_body, "html"))
-
-        context = ssl.create_default_context()
+    # Fallback: port 587 (STARTTLS)
+    try:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.ehlo()
             server.starttls(context=context)
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-
-        return True
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg_obj.as_string())
+        print(f"[email_service] Email sent to {to_email} via port 587")
+        return True, ""
+    except smtplib.SMTPAuthenticationError:
+        error = (
+            "Gmail authentication failed (port 587). Your App Password is incorrect or expired. "
+            "Go to myaccount.google.com/apppasswords, delete the old password and generate a new one, "
+            "then update SMTP_PASSWORD in your .env file."
+        )
+        print(f"[email_service] {error}")
+        return False, error
     except Exception as e:
-        print(f"[email_service] Failed to send email to {to_email}: {e}")
-        return False
+        error = (
+            f"Could not connect to Gmail on port 465 or 587. "
+            f"Port 465 error: {last_error} | Port 587 error: {e}. "
+            f"Check that your network allows outbound SMTP, or try a different network."
+        )
+        print(f"[email_service] {error}")
+        return False, error
 
 
 # ── High-level notification senders ──────────────────────────────────────────
@@ -153,24 +202,28 @@ def send_expiry_alert(to_email: str, contract_title: str, days: int, end_date: s
     subject = f"⚠️ Contract Expiring in {days} Day{'s' if days != 1 else ''}: {contract_title}"
     body    = _contract_expiry_html(contract_title, days, end_date, contract_id)
     html    = _base_template(f"Contract Expiry {'Urgent Notice' if days <= 7 else 'Reminder'}", body)
-    return send_email(to_email, subject, html)
+    ok, _   = send_email(to_email, subject, html)
+    return ok
 
 
 def send_approval_request(to_email: str, contract_title: str, approval_type: str, contract_id: str) -> bool:
     subject = f"📋 Approval Required: {contract_title}"
     body    = _approval_request_html(contract_title, approval_type, contract_id)
     html    = _base_template("Approval Request", body)
-    return send_email(to_email, subject, html)
+    ok, _   = send_email(to_email, subject, html)
+    return ok
 
 
 def send_workflow_update(to_email: str, contract_title: str, stage: str, status: str, contract_id: str) -> bool:
     subject = f"🔄 Workflow Updated: {contract_title}"
     body    = _workflow_update_html(contract_title, stage, status, contract_id)
     html    = _base_template("Workflow Update", body)
-    return send_email(to_email, subject, html)
+    ok, _   = send_email(to_email, subject, html)
+    return ok
 
 
-def send_test_email(to_email: str) -> bool:
+def send_test_email(to_email: str) -> tuple[bool, str]:
+    """Returns (success, error_message)."""
     body = """
     <p style="color:#475569;font-size:15px;line-height:1.6;">
       Your Gmail notifications are correctly configured in <strong>Clause CLM</strong>. 🎉
