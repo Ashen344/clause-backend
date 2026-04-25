@@ -62,7 +62,7 @@ async def get_workflow_details(
     is_admin = current_user.get("role") in ("admin", "manager")
     if not is_admin:
         # Verify the linked contract belongs to this user
-        from app.config import contracts_collection
+        from tests.config import contracts_collection
         from bson import ObjectId
         contract_id = workflow.get("contract_id")
         if contract_id and ObjectId.is_valid(contract_id):
@@ -81,7 +81,7 @@ async def get_contract_workflows(
     """Get all workflows for a specific contract."""
     is_admin = current_user.get("role") in ("admin", "manager")
     if not is_admin:
-        from app.config import contracts_collection
+        from tests.config import contracts_collection
         from bson import ObjectId
         if ObjectId.is_valid(contract_id):
             contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})

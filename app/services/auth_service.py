@@ -129,7 +129,6 @@ def deactivate_user(user_id: str) -> Optional[dict]:
     return get_user_by_id(user_id)
 
 
-# ✅ ✅ ADDED FUNCTION (this fixes your test failures)
 def activate_user(user_id: str) -> Optional[dict]:
     """Reactivate a previously deactivated user account (admin only)."""
     if not ObjectId.is_valid(user_id):

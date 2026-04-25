@@ -56,7 +56,7 @@ def root():
 
 @app.get("/health")
 def health_check():
-    from app.config import client
+    from tests.config import client
     try:
         client.admin.command("ping")
         db_status = "connected"

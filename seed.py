@@ -4,7 +4,7 @@ Run: python seed.py
 """
 
 from datetime import datetime, timedelta
-from app.config import (
+from tests.config import (
     db,
     users_collection,
     contracts_collection,

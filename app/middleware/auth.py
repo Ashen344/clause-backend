@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Optional
 import httpx
-from app.config import CLERK_SECRET_KEY, CLERK_ISSUER, users_collection
+from tests.config import CLERK_SECRET_KEY, CLERK_ISSUER, users_collection
 
 security = HTTPBearer(auto_error=False)
 

@@ -8,7 +8,7 @@ from app.services.approval_service import (
     get_pending_approvals,
     get_approvals_by_contract,
 )
-from app.config import contracts_collection
+from tests.config import contracts_collection
 from bson import ObjectId
 
 router = APIRouter(prefix="/api/approvals", tags=["Approvals"])

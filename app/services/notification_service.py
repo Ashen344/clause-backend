@@ -1,7 +1,7 @@
 from bson import ObjectId
 from datetime import datetime
 from typing import Optional
-from app.config import notifications_collection
+from tests.config import notifications_collection
 from app.models.notification import NotificationCreate, NotificationInDB
 
 

@@ -26,7 +26,7 @@ def serialize_doc(doc: dict) -> dict:
 
 def generate_contract_number() -> str:
     """Generate a unique contract number like CLM-2026-0001."""
-    from app.config import contracts_collection
+    from tests.config import contracts_collection
     now = datetime.utcnow()
     year = now.year
     # Count contracts created this year
