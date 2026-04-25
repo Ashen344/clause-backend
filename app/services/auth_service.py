@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from bson import ObjectId
 from app.config import users_collection
@@ -20,9 +20,9 @@ def get_or_create_user(clerk_id: str, email: str, full_name: str) -> dict:
         # Update last login
         users_collection.update_one(
             {"_id": existing["_id"]},
-            {"$set": {"last_login": datetime.utcnow()}}
+            {"$set": {"last_login": datetime.now(timezone.utc)}}
         )
-        existing["last_login"] = datetime.utcnow()
+        existing["last_login"] = datetime.now(timezone.utc)
         return user_to_response(existing)
 
     # Create new user
@@ -33,9 +33,9 @@ def get_or_create_user(clerk_id: str, email: str, full_name: str) -> dict:
         "role": "user",
         "organization": None,
         "status": "active",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "last_login": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "last_login": datetime.now(timezone.utc),
     }
 
     result = users_collection.insert_one(new_user)
@@ -67,7 +67,7 @@ def update_user(clerk_id: str, update_data: UserUpdate) -> Optional[dict]:
     if not update_dict:
         return get_user_by_clerk_id(clerk_id)
 
-    update_dict["updated_at"] = datetime.utcnow()
+    update_dict["updated_at"] = datetime.now(timezone.utc)
 
     users_collection.update_one(
         {"clerk_id": clerk_id},
@@ -108,7 +108,7 @@ def update_user_role(user_id: str, new_role: str) -> Optional[dict]:
 
     result = users_collection.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"role": new_role, "updated_at": datetime.utcnow()}}
+        {"$set": {"role": new_role, "updated_at": datetime.now(timezone.utc)}}
     )
 
     if result.matched_count == 0:
@@ -124,7 +124,7 @@ def deactivate_user(user_id: str) -> Optional[dict]:
 
     result = users_collection.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"status": "inactive", "updated_at": datetime.utcnow()}}
+        {"$set": {"status": "inactive", "updated_at": datetime.now(timezone.utc)}}
     )
 
     if result.matched_count == 0:
@@ -140,7 +140,7 @@ def activate_user(user_id: str) -> Optional[dict]:
 
     result = users_collection.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"status": "active", "updated_at": datetime.utcnow()}}
+        {"$set": {"status": "active", "updated_at": datetime.now(timezone.utc)}}
     )
 
     if result.matched_count == 0:

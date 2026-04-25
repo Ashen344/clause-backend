@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from app.config import approvals_collection
 from app.models.approval import (
@@ -67,7 +67,7 @@ async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest, is_admin:
                 return None  # Already voted
             approver["decision"] = vote.decision.value
             approver["comments"] = vote.comments
-            approver["decided_at"] = datetime.utcnow()
+            approver["decided_at"] = datetime.now(timezone.utc)
             voter_found = True
             break
 
@@ -78,7 +78,7 @@ async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest, is_admin:
             "user_email": None,
             "decision": vote.decision.value,
             "comments": vote.comments,
-            "decided_at": datetime.utcnow(),
+            "decided_at": datetime.now(timezone.utc),
         })
         voter_found = True
 
@@ -90,12 +90,12 @@ async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest, is_admin:
 
     update = {
         "approvers": approvers,
-        "updated_at": datetime.utcnow(),
+        "updated_at": datetime.now(timezone.utc),
     }
 
     if overall_status != ApprovalStatus.pending.value:
         update["status"] = overall_status
-        update["decided_at"] = datetime.utcnow()
+        update["decided_at"] = datetime.now(timezone.utc)
 
     approvals_collection.update_one(
         {"_id": ObjectId(approval_id)},

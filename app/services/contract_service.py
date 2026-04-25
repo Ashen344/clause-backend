@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from app.config import contracts_collection
 from app.models.contract import (
@@ -140,7 +140,7 @@ async def update_contract(contract_id: str, update_data: ContractUpdate) -> Opti
         return await get_contract(contract_id)
 
     # Always update the timestamp when modifying
-    update_dict["updated_at"] = datetime.utcnow()
+    update_dict["updated_at"] = datetime.now(timezone.utc)
 
     # $set tells MongoDB "update only these specific fields, leave everything else alone"
     contracts_collection.update_one(
@@ -172,7 +172,7 @@ async def update_workflow_stage(contract_id: str, new_stage: str) -> Optional[di
         {
             "$set": {
                 "workflow_stage": new_stage,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
         }
     )
@@ -189,7 +189,7 @@ async def get_dashboard_stats() -> dict:
     expired = contracts_collection.count_documents({"status": "expired"})
 
     # Find contracts expiring in the next 30 days
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     thirty_days = datetime(now.year, now.month + 1, now.day) if now.month < 12 else datetime(now.year + 1, 1, now.day)
 
     expiring_soon = contracts_collection.count_documents({

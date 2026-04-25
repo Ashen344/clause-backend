@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from app.config import workflows_collection, contracts_collection
 from app.models.workflow import (
@@ -56,7 +56,7 @@ async def create_workflow(workflow_data: WorkflowCreate, user_id: str) -> dict:
         {"$set": {
             "workflow_id": str(result.inserted_id),
             "workflow_stage": "request",
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         }}
     )
 
@@ -117,7 +117,7 @@ async def advance_workflow(workflow_id: str, user_id: str, comments: str = None)
     # Complete current step
     steps[current_step_idx]["status"] = StepStatus.completed.value
     steps[current_step_idx]["completed_by"] = user_id
-    steps[current_step_idx]["completed_at"] = datetime.utcnow()
+    steps[current_step_idx]["completed_at"] = datetime.now(timezone.utc)
     if comments:
         steps[current_step_idx]["comments"] = comments
 
@@ -126,19 +126,19 @@ async def advance_workflow(workflow_id: str, user_id: str, comments: str = None)
     update = {
         "steps": steps,
         "current_step": next_step,
-        "updated_at": datetime.utcnow(),
+        "updated_at": datetime.now(timezone.utc),
     }
 
     if current_step_idx + 1 >= len(steps):
         # Workflow complete
         update["status"] = WorkflowStatus.completed.value
-        update["completed_at"] = datetime.utcnow()
+        update["completed_at"] = datetime.now(timezone.utc)
 
         # Update contract status to active
         if workflow.get("contract_id"):
             contracts_collection.update_one(
                 {"_id": ObjectId(workflow["contract_id"])},
-                {"$set": {"status": "active", "workflow_stage": "storage", "updated_at": datetime.utcnow()}}
+                {"$set": {"status": "active", "workflow_stage": "storage", "updated_at": datetime.now(timezone.utc)}}
             )
     else:
         # Activate next step
@@ -154,7 +154,7 @@ async def advance_workflow(workflow_id: str, user_id: str, comments: str = None)
         if workflow.get("contract_id"):
             contracts_collection.update_one(
                 {"_id": ObjectId(workflow["contract_id"])},
-                {"$set": {"workflow_stage": new_stage, "updated_at": datetime.utcnow()}}
+                {"$set": {"workflow_stage": new_stage, "updated_at": datetime.now(timezone.utc)}}
             )
 
     workflows_collection.update_one(
@@ -179,7 +179,7 @@ async def reject_workflow(workflow_id: str, user_id: str, reason: str = None) ->
 
     steps[current_step_idx]["status"] = StepStatus.rejected.value
     steps[current_step_idx]["completed_by"] = user_id
-    steps[current_step_idx]["completed_at"] = datetime.utcnow()
+    steps[current_step_idx]["completed_at"] = datetime.now(timezone.utc)
     if reason:
         steps[current_step_idx]["comments"] = reason
 
@@ -188,7 +188,7 @@ async def reject_workflow(workflow_id: str, user_id: str, reason: str = None) ->
         {"$set": {
             "steps": steps,
             "status": WorkflowStatus.cancelled.value,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         }}
     )
 
@@ -196,7 +196,7 @@ async def reject_workflow(workflow_id: str, user_id: str, reason: str = None) ->
     if workflow.get("contract_id"):
         contracts_collection.update_one(
             {"_id": ObjectId(workflow["contract_id"])},
-            {"$set": {"status": "draft", "workflow_stage": "request", "updated_at": datetime.utcnow()}}
+            {"$set": {"status": "draft", "workflow_stage": "request", "updated_at": datetime.now(timezone.utc)}}
         )
 
     return await get_workflow(workflow_id)
