@@ -9,7 +9,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from app.config import calendar_tokens_collection, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+from tests.config import calendar_tokens_collection, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 

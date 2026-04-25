@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from datetime import datetime, timedelta
-from app.config import (
+from tests.config import (
     contracts_collection,
     workflows_collection,
     approvals_collection,

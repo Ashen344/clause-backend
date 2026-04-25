@@ -11,7 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from app.config import SMTP_EMAIL, SMTP_PASSWORD, contracts_collection, notifications_collection
+from tests.config import SMTP_EMAIL, SMTP_PASSWORD, contracts_collection, notifications_collection
 from bson import ObjectId
 
 
@@ -194,7 +194,7 @@ def scan_and_send_expiry_alerts(dry_run: bool = False) -> dict:
 
     Prevents duplicate sends by checking the notifications_collection for already-sent records.
     """
-    from app.config import users_collection
+    from tests.config import users_collection
 
     now   = datetime.now(timezone.utc)
     sent  = 0

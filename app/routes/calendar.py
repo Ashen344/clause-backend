@@ -13,7 +13,7 @@ from app.services.calendar_service import (
 )
 from app.services.contract_service import get_contract
 from app.middleware.auth import get_current_user
-from app.config import FRONTEND_URL
+from tests.config import FRONTEND_URL
 
 router = APIRouter(prefix="/api/calendar", tags=["Google Calendar"])
 
@@ -39,7 +39,7 @@ async def calendar_auth(current_user: dict = Depends(get_current_user)):
 async def contract_dates(current_user: dict = Depends(get_current_user)):
     """Return all contract start & end dates for the current user so the frontend
     can render a calendar grid without needing Google Calendar to be connected."""
-    from app.config import contracts_collection
+    from tests.config import contracts_collection
     from app.middleware.auth import get_current_user as _gcu
     is_admin = current_user.get("role") in ("admin", "manager")
     query = {} if is_admin else {"created_by": current_user["user_id"]}
@@ -110,7 +110,7 @@ async def sync_all_contracts(current_user: dict = Depends(get_current_user)):
     if not status["connected"]:
         raise HTTPException(status_code=400, detail="Google Calendar not connected.")
 
-    from app.config import contracts_collection
+    from tests.config import contracts_collection
     from bson import ObjectId
     is_admin = current_user.get("role") in ("admin", "manager")
     query    = {} if is_admin else {"created_by": current_user["user_id"]}

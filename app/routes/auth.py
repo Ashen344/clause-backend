@@ -11,7 +11,7 @@ from app.services.auth_service import (
     deactivate_user,
     activate_user,
 )
-from app.config import CLERK_SECRET_KEY
+from tests.config import CLERK_SECRET_KEY
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -168,7 +168,7 @@ async def list_users(
     clerk_users = await _fetch_all_clerk_users(limit=500)
 
     # 2. Build a map of clerk_id → MongoDB record for roles/status
-    from app.config import users_collection
+    from tests.config import users_collection
     db_records = {
         u["clerk_id"]: u
         for u in users_collection.find({}, {"_id": 1, "clerk_id": 1, "role": 1, "status": 1, "created_at": 1})

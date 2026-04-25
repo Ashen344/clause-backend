@@ -8,7 +8,7 @@ from app.services.notification_service import (
     get_unread_count,
 )
 from app.services.email_service import send_test_email, scan_and_send_expiry_alerts
-from app.config import SMTP_EMAIL
+from tests.config import SMTP_EMAIL
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 

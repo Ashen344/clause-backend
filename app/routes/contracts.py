@@ -23,7 +23,7 @@ from app.services.contract_service import (
     update_workflow_stage,
     get_dashboard_stats,
 )
-from app.config import contracts_collection
+from tests.config import contracts_collection
 from app.middleware.auth import get_current_user_with_role
 
 # Create a router - this groups all contract-related endpoints together

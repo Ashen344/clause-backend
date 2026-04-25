@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse
 from bson import ObjectId
 from pydantic import BaseModel
-from app.config import contracts_collection
+from tests.config import contracts_collection
 from app.middleware.auth import get_current_user, get_optional_user
 
 MIME_MAP = {

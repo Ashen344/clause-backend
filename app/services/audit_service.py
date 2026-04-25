@@ -1,6 +1,6 @@
 from datetime import datetime
 from bson import ObjectId
-from app.config import audit_logs_collection
+from tests.config import audit_logs_collection
 from app.models.audit_log import AuditAction
 
 
