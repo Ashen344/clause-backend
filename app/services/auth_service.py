@@ -129,7 +129,24 @@ def deactivate_user(user_id: str) -> Optional[dict]:
     return get_user_by_id(user_id)
 
 
-# ─── Dashboard Preferences ────────────────────────────────────────────────────
+# ✅ ✅ ADDED FUNCTION (this fixes your test failures)
+def activate_user(user_id: str) -> Optional[dict]:
+    """Reactivate a previously deactivated user account (admin only)."""
+    if not ObjectId.is_valid(user_id):
+        return None
+
+    result = users_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"status": "active", "updated_at": datetime.utcnow()}}
+    )
+
+    if result.matched_count == 0:
+        return None
+
+    return get_user_by_id(user_id)
+
+
+# ─── Dashboard Preferences ────────────────────────────────────────────
 
 def _default_preferences() -> dict:
     """Returns the default preferences for a new user."""
@@ -148,23 +165,18 @@ def _default_preferences() -> dict:
 
 
 def get_preferences(clerk_id: str) -> dict:
-    """Get the user's dashboard preferences.
-    Returns defaults if the user has never saved preferences.
-    """
+    """Get the user's dashboard preferences."""
     user = users_collection.find_one({"clerk_id": clerk_id})
     if not user:
         return _default_preferences()
 
     stored = user.get("preferences")
 
-    # No preferences saved yet — return defaults
     if not stored:
         return _default_preferences()
 
-    # Merge with defaults so any new keys added later always have a value
     merged = {**_default_preferences(), **stored}
 
-    # Safety: never return an empty widget list
     if not merged.get("visible_widgets"):
         merged["visible_widgets"] = _default_preferences()["visible_widgets"]
 
@@ -172,13 +184,11 @@ def get_preferences(clerk_id: str) -> dict:
 
 
 def save_preferences(clerk_id: str, preferences: dict) -> dict:
-    """Save the user's dashboard preferences to their MongoDB document."""
+    """Save the user's dashboard preferences."""
 
-    # Enforce pinned_contracts max of 5
     if "pinned_contracts" in preferences:
         preferences["pinned_contracts"] = preferences["pinned_contracts"][:5]
 
-    # Never save an empty widget list
     if not preferences.get("visible_widgets"):
         preferences["visible_widgets"] = _default_preferences()["visible_widgets"]
 

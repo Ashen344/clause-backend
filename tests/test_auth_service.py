@@ -1,149 +1,235 @@
-from datetime import datetime
-from typing import Optional
+import pytest
+from unittest.mock import patch, MagicMock
 from bson import ObjectId
-from app.config import users_collection
-from app.models.user import UserCreate, UserUpdate
+from datetime import datetime
+from conftest import make_user
 
 
-def user_to_response(user: dict) -> dict:
-    """Convert a MongoDB user document to API response format."""
-    user["id"] = str(user["_id"])
-    del user["_id"]
-    return user
+# ══════════════════════════════════════════════════════════════════════
+# get_or_create_user()
+# PATHS: P1 = user exists | P2 = new user
+# ══════════════════════════════════════════════════════════════════════
+class TestGetOrCreateUser:
+
+    @patch("app.services.auth_service.users_collection")
+    def test_existing_user_updates_last_login(self, mock_col):
+        existing = make_user("clerk_001")
+        mock_col.find_one.return_value = existing
+        mock_col.update_one.return_value = MagicMock()
+
+        from app.services.auth_service import get_or_create_user
+
+        result = get_or_create_user("clerk_001", "a@b.com", "Alice")
+
+        mock_col.update_one.assert_called_once()
+        assert "id" in result
+        assert "_id" not in result
+        mock_col.insert_one.assert_not_called()
+
+    @patch("app.services.auth_service.users_collection")
+    def test_new_user_is_created(self, mock_col):
+        mock_col.find_one.side_effect = [None, make_user("clerk_new")]
+        mock_col.insert_one.return_value = MagicMock(inserted_id=ObjectId())
+
+        from app.services.auth_service import get_or_create_user
+
+        result = get_or_create_user("clerk_new", "new@b.com", "Bob")
+
+        mock_col.insert_one.assert_called_once()
+        assert "id" in result
 
 
-def get_or_create_user(clerk_id: str, email: str, full_name: str) -> dict:
-    """Find existing user by Clerk ID or create a new one (called on first login)."""
-    existing = users_collection.find_one({"clerk_id": clerk_id})
+# ══════════════════════════════════════════════════════════════════════
+# get_user_by_id()
+# PATHS: P1 = invalid id | P2 = found | P3 = not found
+# ══════════════════════════════════════════════════════════════════════
+class TestGetUserById:
 
-    if existing:
-        # Update last login
-        users_collection.update_one(
-            {"_id": existing["_id"]},
-            {"$set": {"last_login": datetime.utcnow()}}
-        )
-        existing["last_login"] = datetime.utcnow()
-        return user_to_response(existing)
+    @patch("app.services.auth_service.users_collection")
+    def test_invalid_object_id_returns_none(self, mock_col):
+        from app.services.auth_service import get_user_by_id
 
-    # Create new user
-    new_user = {
-        "clerk_id": clerk_id,
-        "email": email,
-        "full_name": full_name,
-        "role": "user",
-        "organization": None,
-        "status": "active",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "last_login": datetime.utcnow(),
-    }
+        result = get_user_by_id("invalid!!!")
+        assert result is None
+        mock_col.find_one.assert_not_called()
 
-    result = users_collection.insert_one(new_user)
-    created = users_collection.find_one({"_id": result.inserted_id})
-    return user_to_response(created)
+    @patch("app.services.auth_service.users_collection")
+    def test_valid_id_user_found(self, mock_col):
+        mock_col.find_one.return_value = make_user()
 
+        from app.services.auth_service import get_user_by_id
 
-def get_user_by_clerk_id(clerk_id: str) -> Optional[dict]:
-    """Look up a user by their Clerk authentication ID."""
-    user = users_collection.find_one({"clerk_id": clerk_id})
-    if user:
-        return user_to_response(user)
-    return None
+        result = get_user_by_id(str(ObjectId()))
+        assert result is not None
+        assert "id" in result
+
+    @patch("app.services.auth_service.users_collection")
+    def test_valid_id_user_not_found(self, mock_col):
+        mock_col.find_one.return_value = None
+
+        from app.services.auth_service import get_user_by_id
+
+        result = get_user_by_id(str(ObjectId()))
+        assert result is None
 
 
-def get_user_by_id(user_id: str) -> Optional[dict]:
-    """Look up a user by their MongoDB ID."""
-    if not ObjectId.is_valid(user_id):
-        return None
-    user = users_collection.find_one({"_id": ObjectId(user_id)})
-    if user:
-        return user_to_response(user)
-    return None
+# ══════════════════════════════════════════════════════════════════════
+# update_user_role()
+# PATHS: P1 = invalid id | P2 = not found | P3 = success
+# ══════════════════════════════════════════════════════════════════════
+class TestUpdateUserRole:
+
+    @patch("app.services.auth_service.users_collection")
+    def test_invalid_objectid_returns_none(self, mock_col):
+        from app.services.auth_service import update_user_role
+
+        result = update_user_role("bad!!!", "admin")
+        assert result is None
+
+    @patch("app.services.auth_service.users_collection")
+    def test_user_not_found(self, mock_col):
+        mock_col.update_one.return_value = MagicMock(matched_count=0)
+
+        from app.services.auth_service import update_user_role
+
+        result = update_user_role(str(ObjectId()), "admin")
+        assert result is None
+
+    @patch("app.services.auth_service.users_collection")
+    def test_role_updated_successfully(self, mock_col):
+        user = make_user()
+        user["role"] = "admin"
+
+        mock_col.update_one.return_value = MagicMock(matched_count=1)
+        mock_col.find_one.return_value = user
+
+        from app.services.auth_service import update_user_role
+
+        result = update_user_role(str(ObjectId()), "admin")
+        assert result is not None
 
 
-def update_user(clerk_id: str, update_data: UserUpdate) -> Optional[dict]:
-    """Update a user's profile information."""
-    update_dict = update_data.model_dump(exclude_unset=True)
-    if not update_dict:
-        return get_user_by_clerk_id(clerk_id)
+# ══════════════════════════════════════════════════════════════════════
+# deactivate_user()
+# ══════════════════════════════════════════════════════════════════════
+class TestDeactivateUser:
 
-    update_dict["updated_at"] = datetime.utcnow()
+    @patch("app.services.auth_service.users_collection")
+    def test_invalid_objectid(self, mock_col):
+        from app.services.auth_service import deactivate_user
 
-    users_collection.update_one(
-        {"clerk_id": clerk_id},
-        {"$set": update_dict}
-    )
+        assert deactivate_user("xyz") is None
 
-    return get_user_by_clerk_id(clerk_id)
+    @patch("app.services.auth_service.users_collection")
+    def test_user_not_found(self, mock_col):
+        mock_col.update_one.return_value = MagicMock(matched_count=0)
 
+        from app.services.auth_service import deactivate_user
 
-def get_all_users(page: int = 1, per_page: int = 20) -> dict:
-    """Get paginated list of all users (admin only)."""
-    skip = (page - 1) * per_page
-    total = users_collection.count_documents({})
+        assert deactivate_user(str(ObjectId())) is None
 
-    users_cursor = (
-        users_collection
-        .find()
-        .sort("created_at", -1)
-        .skip(skip)
-        .limit(per_page)
-    )
+    @patch("app.services.auth_service.users_collection")
+    def test_deactivation_sets_inactive(self, mock_col):
+        user = make_user(status="inactive")
 
-    users = [user_to_response(u) for u in users_cursor]
+        mock_col.update_one.return_value = MagicMock(matched_count=1)
+        mock_col.find_one.return_value = user
 
-    return {
-        "users": users,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "total_pages": (total + per_page - 1) // per_page if total > 0 else 0,
-    }
+        from app.services.auth_service import deactivate_user
+
+        result = deactivate_user(str(ObjectId()))
+        assert result is not None
 
 
-def update_user_role(user_id: str, new_role: str) -> Optional[dict]:
-    """Update a user's role (admin only)."""
-    if not ObjectId.is_valid(user_id):
-        return None
+# ══════════════════════════════════════════════════════════════════════
+# activate_user()
+# ══════════════════════════════════════════════════════════════════════
+class TestActivateUser:
 
-    result = users_collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"role": new_role, "updated_at": datetime.utcnow()}}
-    )
+    @patch("app.services.auth_service.users_collection")
+    def test_invalid_objectid(self, mock_col):
+        from app.services.auth_service import activate_user
 
-    if result.matched_count == 0:
-        return None
+        assert activate_user("xyz") is None
 
-    return get_user_by_id(user_id)
+    @patch("app.services.auth_service.users_collection")
+    def test_user_not_found(self, mock_col):
+        mock_col.update_one.return_value = MagicMock(matched_count=0)
+
+        from app.services.auth_service import activate_user
+
+        assert activate_user(str(ObjectId())) is None
+
+    @patch("app.services.auth_service.users_collection")
+    def test_activation_sets_active(self, mock_col):
+        user = make_user(status="active")
+
+        mock_col.update_one.return_value = MagicMock(matched_count=1)
+        mock_col.find_one.return_value = user
+
+        from app.services.auth_service import activate_user
+
+        result = activate_user(str(ObjectId()))
+        assert result is not None
 
 
-def deactivate_user(user_id: str) -> Optional[dict]:
-    """Deactivate a user account (admin only)."""
-    if not ObjectId.is_valid(user_id):
-        return None
+# ══════════════════════════════════════════════════════════════════════
+# get_all_users() — pagination
+# ══════════════════════════════════════════════════════════════════════
+class TestGetAllUsers:
 
-    result = users_collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"status": "inactive", "updated_at": datetime.utcnow()}}
-    )
+    @patch("app.services.auth_service.users_collection")
+    def test_empty_db_total_pages_is_zero(self, mock_col):
+        mock_col.count_documents.return_value = 0
 
-    if result.matched_count == 0:
-        return None
+        mock_col.find.return_value \
+            .sort.return_value \
+            .skip.return_value \
+            .limit.return_value = iter([])
 
-    return get_user_by_id(user_id)
+        from app.services.auth_service import get_all_users
 
+        result = get_all_users(page=1, per_page=20)
 
-def activate_user(user_id: str) -> Optional[dict]:
-    """Reactivate a previously deactivated user account (admin only)."""
-    if not ObjectId.is_valid(user_id):
-        return None
+        assert result["total"] == 0
+        assert result["total_pages"] == 0
 
-    result = users_collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"status": "active", "updated_at": datetime.utcnow()}}
-    )
+    @patch("app.services.auth_service.users_collection")
+    def test_pagination_skip_arithmetic(self, mock_col):
+        mock_col.count_documents.return_value = 45
 
-    if result.matched_count == 0:
-        return None
+        mock_col.find.return_value \
+            .sort.return_value \
+            .skip.return_value \
+            .limit.return_value = iter([])
 
-    return get_user_by_id(user_id)
+        from app.services.auth_service import get_all_users
+
+        get_all_users(page=3, per_page=15)
+
+        skip_call = mock_col.find.return_value.sort.return_value.skip
+        skip_call.assert_called_with(30)
+
+    # ✅ ✅ THIS IS THE MISSING WHITE-BOX TEST
+    @patch("app.services.auth_service.users_collection")
+    def test_get_all_users_with_results(self, mock_col):
+        mock_col.count_documents.return_value = 2
+
+        users = [make_user("u1"), make_user("u2")]
+
+        mock_col.find.return_value \
+            .sort.return_value \
+            .skip.return_value \
+            .limit.return_value = iter(users)
+
+        from app.services.auth_service import get_all_users
+
+        result = get_all_users(page=1, per_page=10)
+
+        assert result["total"] == 2
+        assert result["total_pages"] == 1
+        assert len(result["users"]) == 2
+
+        for user in result["users"]:
+            assert "id" in user
+            assert "_id" not in user
