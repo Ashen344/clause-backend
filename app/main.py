@@ -14,6 +14,9 @@ from app.routes.audit import router as audit_router
 from app.routes.calendar import router as calendar_router
 from app.routes.admin import router as admin_router
 from app.routes.documents import router as documents_router
+from app.routes.reports import router as reports_router
+from app.routes.wopi import router as wopi_router
+from app.routes.pipeline import router as pipeline_router
 
 app = FastAPI(
     title="CLAUSE - Contract Lifecycle Management System",
@@ -47,6 +50,9 @@ app.include_router(audit_router)
 app.include_router(calendar_router)
 app.include_router(admin_router)
 app.include_router(documents_router)
+app.include_router(reports_router)
+app.include_router(wopi_router)
+app.include_router(pipeline_router)
 
 
 @app.get("/")

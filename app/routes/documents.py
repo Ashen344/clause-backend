@@ -1,19 +1,24 @@
 import os
 import shutil
+import re
 import uuid
+import httpx
+import xml.etree.ElementTree as ET
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends, Request
 from fastapi.responses import FileResponse
 from bson import ObjectId
 from pydantic import BaseModel
-from app.config import contracts_collection
-from app.middleware.auth import get_current_user, get_optional_user
-from app.services.document_conversion import (
-    convert_document,
-    is_libreoffice_available,
-    ALLOWED_TARGETS,
+from app.config import (
+    contracts_collection,
+    UPLOAD_DIR,
+    ALLOWED_EXTENSIONS,
+    MAX_FILE_SIZE,
+    COLLABORA_INTERNAL_URL,
+    WOPI_BASE_URL,
 )
-from app.services.document_export import html_to_docx, html_to_pdf
+from app.middleware.auth import get_current_user, get_optional_user
+from app.routes.wopi import make_wopi_token
 
 MIME_MAP = {
     ".pdf": "application/pdf",
@@ -25,10 +30,6 @@ MIME_MAP = {
 }
 
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
-
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
-ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt"}
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
 
 @router.post("/upload/{contract_id}")
@@ -495,6 +496,91 @@ async def export_document(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
     )
+
+
+@router.get("/wopi-url/{contract_id}")
+async def get_wopi_url(
+    contract_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the Collabora Online editor URL for the contract's latest document.
+
+    The frontend embeds this URL in an iframe to open LibreOffice in the browser.
+    Collabora calls back to /wopi/files/{contract_id} to read and save the file.
+    """
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=400, detail="Invalid contract ID")
+
+    contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    versions = contract.get("versions", [])
+    if not versions:
+        raise HTTPException(status_code=404, detail="No document attached to this contract")
+
+    latest = versions[-1]
+    file_type = latest.get("file_type", ".docx").lstrip(".")
+    token = make_wopi_token(contract_id)
+
+    # The WOPI source URL must be reachable from inside the Collabora Docker container.
+    # host.docker.internal resolves to the Windows host from within WSL/Docker.
+    wopi_src = f"{WOPI_BASE_URL}/wopi/files/{contract_id}?access_token={token}"
+
+    # Fetch Collabora's discovery XML to get the correct action URL for this file type.
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{COLLABORA_INTERNAL_URL}/hosting/discovery")
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cannot reach Collabora at {COLLABORA_INTERNAL_URL}: {exc}",
+        )
+
+    # Find action URL: prefer "edit", fall back to view variants for read-only formats (PDF)
+    action_url = None
+    for action_name in ("edit", "view_comment", "view"):
+        for action in root.findall(f".//action[@name='{action_name}']"):
+            if action.get("ext", "") == file_type:
+                action_url = action.get("urlsrc")
+                break
+        if action_url:
+            break
+
+    # Final fallback: any edit action for common editable formats
+    if not action_url and file_type not in ("pdf",):
+        for action in root.findall(".//action[@name='edit']"):
+            if action.get("ext", "") in ("docx", "odt"):
+                action_url = action.get("urlsrc")
+                break
+
+    if not action_url:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Collabora has no supported action for file type '.{file_type}'",
+        )
+
+    # Rewrite internal Docker URL (https://code:9980/...) to go through the nginx
+    # /collabora/ reverse proxy so the browser can reach it.
+    from urllib.parse import quote
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("host", "localhost")
+    action_url = re.sub(r"https?://[^/?]+", f"{proto}://{host}", action_url, count=1)
+
+    # Collabora action URLs end with "?" or contain template params — append WOPISrc
+    if "?" in action_url:
+        editor_url = f"{action_url}WOPISrc={quote(wopi_src, safe='')}"
+    else:
+        editor_url = f"{action_url}?WOPISrc={quote(wopi_src, safe='')}"
+
+    return {
+        "editor_url": editor_url,
+        "file_type": file_type,
+        "filename": latest.get("original_filename", "document"),
+    }
 
 
 @router.delete("/{contract_id}/{version_number}")

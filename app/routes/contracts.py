@@ -1,7 +1,9 @@
+import io
 import os
 import uuid
 from datetime import datetime, timedelta
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Depends
 from typing import Optional
 from app.models.contract import (
@@ -23,18 +25,14 @@ from app.services.contract_service import (
     update_workflow_stage,
     get_dashboard_stats,
 )
-from app.config import contracts_collection
+from app.config import contracts_collection, UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE, COLLABORA_INTERNAL_URL
 from app.middleware.auth import get_current_user_with_role
 from app.services.audit_service import create_audit_log
 from app.models.audit_log import AuditAction
 
-# Create a router - this groups all contract-related endpoints together
-# The prefix means all routes in this file start with /api/contracts
-# Tags help organize the auto-generated docs at /docs
 router = APIRouter(prefix="/api/contracts", tags=["Contracts"])
 
 
-# POST /api/contracts - Create a new contract
 @router.post("/", response_model=None)
 async def create_new_contract(
     contract: ContractCreate,
@@ -52,7 +50,6 @@ async def create_new_contract(
     return result
 
 
-# GET /api/contracts - List all contracts with optional filters
 @router.get("/")
 async def list_contracts(
     search: Optional[str] = Query(None, description="Search by title"),
@@ -77,52 +74,13 @@ async def list_contracts(
     return await get_contracts(filters, user_id=current_user["user_id"], is_admin=is_admin)
 
 
-# GET /api/contracts/dashboard - Dashboard statistics
-# IMPORTANT: This route must be ABOVE /{contract_id}
-# Otherwise FastAPI thinks "dashboard" is a contract ID
+# Must be above /{contract_id} or FastAPI matches "dashboard" as an ID
 @router.get("/dashboard")
 async def dashboard_statistics():
     return await get_dashboard_stats()
 
 
-# GET /api/contracts/lifecycle-stats — per-user lifecycle category counts
-@router.get("/lifecycle-stats")
-async def lifecycle_stats(
-    current_user: dict = Depends(get_current_user_with_role),
-):
-    """
-    Return counts for the six contract lifecycle categories.
-    Admins/managers see all contracts; regular users see only their own.
-    """
-    from datetime import timezone
-    role     = current_user.get("role", "user")
-    is_admin = role in ("admin", "manager")
-    uf       = {} if is_admin else {"created_by": current_user["user_id"]}
-
-    now               = datetime.utcnow()
-    thirty_days_ago   = now - timedelta(days=30)
-    ninety_days_ahead = now + timedelta(days=90)
-
-    def count(extra: dict) -> int:
-        return contracts_collection.count_documents({**uf, **extra})
-
-    return {
-        "pending_approval":   count({"workflow_stage": "approval",  "status": {"$nin": ["expired", "terminated"]}}),
-        "pending_negotiation": count({"workflow_stage": "review",   "status": {"$nin": ["expired", "terminated"]}}),
-        "pending_signing":    count({"workflow_stage": "execution", "status": {"$nin": ["expired", "terminated"]}}),
-        "waiting_to_active":  count({"status": "draft", "workflow_stage": {"$nin": ["request", None, ""]}}),
-        "became_active":      count({"status": "active", "updated_at": {"$gte": thirty_days_ago}}),
-        "upcoming_renewals":  count({"status": "active", "end_date":   {"$gte": now, "$lte": ninety_days_ahead}}),
-    }
-
-
-# POST /api/contracts/upload - Upload a document and create a draft contract from it
-# IMPORTANT: This route must be ABOVE /{contract_id} to avoid matching "upload" as an ID
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
-ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt"}
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
-
-
+# Must be above /{contract_id} or FastAPI matches "upload" as an ID
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from a PDF using PyPDF2."""
     try:
@@ -138,6 +96,21 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
         return "\n\n".join(pages_text)
     except Exception:
         return ""
+
+
+async def _convert_pdf_to_docx(pdf_content: bytes) -> bytes | None:
+    """Convert PDF bytes to DOCX using Collabora's built-in conversion API."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{COLLABORA_INTERNAL_URL}/cool/convert-to/docx",
+                files={"data": ("document.pdf", io.BytesIO(pdf_content), "application/pdf")},
+            )
+            if resp.status_code == 200:
+                return resp.content
+    except Exception:
+        pass
+    return None
 
 
 @router.post("/upload")
@@ -169,10 +142,26 @@ async def upload_and_create_contract(
     with open(file_path, "wb") as f:
         f.write(content)
 
+    # For PDFs: convert to DOCX via Collabora so the document is fully editable.
+    # The original PDF is kept as version 1; the DOCX becomes version 2 (working copy).
+    pdf_original_stored = None
+    if ext == ".pdf":
+        docx_bytes = await _convert_pdf_to_docx(content)
+        if docx_bytes:
+            pdf_original_stored = stored_filename
+            docx_id = uuid.uuid4().hex
+            stored_filename = f"{docx_id}.docx"
+            docx_path = os.path.join(UPLOAD_DIR, stored_filename)
+            with open(docx_path, "wb") as f:
+                f.write(docx_bytes)
+            content = docx_bytes
+            ext = ".docx"
+            original_name = os.path.splitext(original_name)[0] + ".docx"
+
     # Extract text for downstream AI analysis / display
     extracted_text = ""
-    if ext == ".pdf":
-        extracted_text = _extract_text_from_pdf(content)
+    if pdf_original_stored:
+        extracted_text = _extract_text_from_pdf(open(os.path.join(UPLOAD_DIR, pdf_original_stored), "rb").read())
     elif ext == ".txt":
         try:
             extracted_text = content.decode("utf-8", errors="replace")
@@ -247,7 +236,6 @@ async def upload_and_create_contract(
     }
 
 
-# GET /api/contracts/{contract_id} - Get a single contract
 @router.get("/{contract_id}")
 async def get_single_contract(
     contract_id: str,
@@ -262,7 +250,6 @@ async def get_single_contract(
     return contract
 
 
-# PUT /api/contracts/{contract_id} - Update a contract
 @router.put("/{contract_id}")
 async def update_existing_contract(
     contract_id: str,
@@ -286,7 +273,6 @@ async def update_existing_contract(
     return contract
 
 
-# DELETE /api/contracts/{contract_id} - Delete a contract
 @router.delete("/{contract_id}")
 async def delete_existing_contract(
     contract_id: str,
@@ -309,7 +295,6 @@ async def delete_existing_contract(
     return {"message": "Contract deleted successfully"}
 
 
-# PATCH /api/contracts/{contract_id}/workflow - Update workflow stage
 @router.patch("/{contract_id}/workflow")
 async def change_workflow_stage(
     contract_id: str,
