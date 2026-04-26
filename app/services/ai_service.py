@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Timeouts: the agent may run multi-step tool-calling loops, so analysis
 # and generation get generous limits.  Chat is quicker.
 _TIMEOUT_ANALYSIS = httpx.Timeout(timeout=120.0, connect=10.0)
-_TIMEOUT_CHAT = httpx.Timeout(timeout=60.0, connect=10.0)
+_TIMEOUT_CHAT = httpx.Timeout(timeout=240.0, connect=10.0)
 _TIMEOUT_GENERATION = httpx.Timeout(timeout=120.0, connect=10.0)
 
 
@@ -181,15 +181,18 @@ async def generate_contract_draft(
 
 # ── AI Chat ────────────────────────────────────────────────────────────────
 
-async def ai_chat(contract_id: str, question: str, history: list = None) -> dict:
+async def ai_chat(
+    contract_id: str,
+    question: str,
+    contract_text: str = None,
+) -> dict:
     """Ask the agent service a question, optionally with contract context.
 
     Agent endpoint: POST /chat
     Supports session-based conversation continuity via session_id.
+    Pass contract_text directly to skip the DB lookup (e.g. for uploaded files).
     """
-    # Build contract context from the DB if a contract_id was provided
-    contract_text = None
-    if contract_id and ObjectId.is_valid(contract_id):
+    if contract_text is None and contract_id and ObjectId.is_valid(contract_id):
         contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
         if contract:
             contract_text = _build_contract_text(contract)

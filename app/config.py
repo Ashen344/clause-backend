@@ -50,3 +50,13 @@ workflows_collection = db["workflows"]
 approvals_collection = db["approvals"]
 calendar_tokens_collection = db["calendar_tokens"]
 reports_collection = db["reports"]
+
+# ─── File upload settings ────────────────────────────────────────────────────
+import pathlib as _pathlib
+UPLOAD_DIR = str(_pathlib.Path(__file__).resolve().parent.parent / "uploads")
+ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt"}
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
+# ─── WOPI / Collabora ────────────────────────────────────────────────────────
+COLLABORA_INTERNAL_URL = os.getenv("COLLABORA_URL", "http://code:9980")
+WOPI_BASE_URL = os.getenv("WOPI_BASE_URL", "http://backend:8000")

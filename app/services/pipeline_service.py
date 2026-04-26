@@ -11,15 +11,12 @@ from typing import Optional, List
 
 from bson import ObjectId
 
-from app.config import contracts_collection
+from app.config import contracts_collection, UPLOAD_DIR
 from app.services.ai_service import (
     analyze_contract_text,
     detect_conflicts,
     _build_contract_text,
 )
-
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
-
 
 def extract_text_from_file(file_bytes: bytes, file_type: str) -> str:
     """Extract plain text from uploaded file bytes based on file type."""
