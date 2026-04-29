@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
-from tests.config import contracts_collection, GEMINI_API_KEY, GEMINI_MODEL
+from app.config import contracts_collection, GEMINI_API_KEY, GEMINI_MODEL
 
 # Lazy-load Gemini to avoid import errors if not installed
 _model = None

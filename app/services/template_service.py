@@ -1,7 +1,7 @@
 from bson import ObjectId
 from datetime import datetime
 from typing import Optional
-from tests.config import templates_collection
+from app.config import templates_collection
 from app.models.template import TemplateCreate, TemplateUpdate, TemplateInDB
 
 
