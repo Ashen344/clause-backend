@@ -1,4 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends
+import io
+import json
+import os
+
+from fastapi import APIRouter, Form, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional, List
 from app.middleware.auth import get_current_user, get_optional_user
@@ -9,6 +13,8 @@ from app.services.ai_service import (
     ai_chat,
     detect_conflicts,
     scan_contract_against_existing,
+    embed_and_analyze,
+    bulk_embed_contracts,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
@@ -37,6 +43,13 @@ class ChatRequest(BaseModel):
     question: str
     history: Optional[List[ChatHistoryMessage]] = []
     mode: Optional[str] = "general"
+
+
+class EmbedAndAnalyzeRequest(BaseModel):
+    text: str
+    file_name: str = "upload"
+    question: str = "Summarize the key information in this document."
+    session_id: Optional[str] = None
 
 
 @router.post("/analyze/text")
@@ -95,11 +108,113 @@ async def chat_with_ai(request: ChatRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    history = [{"role": m.role, "content": m.content} for m in (request.history or [])]
-
     result = await ai_chat(
         contract_id=request.contract_id or "",
         question=request.question,
-        history=history,
+    )
+    return result
+
+
+def _extract_text(content: bytes, ext: str) -> str:
+    """Extract plain text from PDF, DOCX, or TXT bytes."""
+    if ext == ".pdf":
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=content, filetype="pdf")
+            return "\n\n".join(page.get_text() for page in doc)
+        except Exception:
+            return ""
+    if ext in (".txt", ".md", ".rtf"):
+        return content.decode("utf-8", errors="replace")
+    if ext == ".docx":
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(content))
+            return "\n".join(p.text for p in doc.paragraphs)
+        except Exception:
+            return ""
+    return ""
+
+
+@router.post("/chat-file")
+async def chat_with_file(
+    question: str = Form(...),
+    file: UploadFile = File(...),
+    history: str = Form("[]"),
+):
+    """Chat with an uploaded document (PDF/DOCX/TXT) as context."""
+    if not question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    allowed = {".pdf", ".txt", ".md", ".rtf", ".docx"}
+    if ext not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(allowed))}",
+        )
+
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File exceeds 20 MB limit")
+
+    text = _extract_text(content, ext)
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="Could not extract text from file")
+
+    try:
+        json.loads(history)
+    except ValueError:
+        history = "[]"
+
+    result = await ai_chat(
+        contract_id="",
+        question=question,
+        contract_text=text[:12000],
+    )
+    result["file_name"] = file.filename
+    return result
+
+
+@router.post("/embed-and-analyze")
+async def embed_and_analyze_document(request: EmbedAndAnalyzeRequest):
+    """Upload a document's text for embedding into the knowledge base and
+    AI-powered analysis.
+
+    The agent service will:
+    1. Chunk the text and embed it into Elasticsearch
+    2. Search the KB for relevant context
+    3. Use Ollama + Gemini to produce a structured analysis
+    """
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="Document text cannot be empty")
+
+    result = await embed_and_analyze(
+        text=request.text,
+        file_name=request.file_name,
+        question=request.question,
+        session_id=request.session_id,
+    )
+    return result
+
+
+class BulkEmbedRequest(BaseModel):
+    force: bool = False
+    batch_size: int = 20
+
+
+@router.post("/embed-all")
+async def embed_all_contracts(
+    request: BulkEmbedRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Embed all contracts from MongoDB into the Elasticsearch knowledge base.
+
+    Skips contracts already marked as embedded unless force=True.
+    Returns a summary with succeeded/skipped/failed counts.
+    """
+    result = await bulk_embed_contracts(
+        force=request.force,
+        batch_size=max(1, min(request.batch_size, 50)),
     )
     return result

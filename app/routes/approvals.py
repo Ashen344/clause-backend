@@ -9,6 +9,8 @@ from app.services.approval_service import (
     get_approvals_by_contract,
 )
 from app.config import contracts_collection
+from app.services.audit_service import create_audit_log
+from app.models.audit_log import AuditAction
 from bson import ObjectId
 
 router = APIRouter(prefix="/api/approvals", tags=["Approvals"])
@@ -31,6 +33,14 @@ async def create_new_approval(
             raise HTTPException(status_code=403, detail="You can only create approvals for your own contracts")
 
     result = await create_approval(approval_data, user_id=current_user["user_id"])
+    create_audit_log(
+        action=AuditAction.create,
+        resource_type="approval",
+        resource_id=result.get("id", approval_data.contract_id),
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Approval request created for contract: {approval_data.contract_id}",
+    )
     return result
 
 
@@ -57,6 +67,14 @@ async def vote_on_approval(
             status_code=400,
             detail="Cannot vote. You may have already voted, not be an approver, or the approval is closed.",
         )
+    create_audit_log(
+        action=AuditAction.approval_vote,
+        resource_type="approval",
+        resource_id=approval_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Vote cast: {vote.vote} on approval {approval_id}",
+    )
     return result
 
 
