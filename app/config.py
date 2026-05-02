@@ -51,6 +51,7 @@ approvals_collection = db["approvals"]
 workflow_templates_collection = db["workflow_templates"]
 calendar_tokens_collection = db["calendar_tokens"]
 reports_collection = db["reports"]
+notification_settings_collection = db["notification_settings"]
 
 # ─── File upload settings ────────────────────────────────────────────────────
 import pathlib as _pathlib

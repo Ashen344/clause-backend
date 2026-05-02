@@ -43,12 +43,26 @@ def make_wopi_token(contract_id: str) -> str:
 
 
 def _verify(contract_id: str, token: str) -> bool:
-    return hmac.compare_digest(make_wopi_token(contract_id), token)
+    # Collabora appends ?permission=readonly (URL-encoded as %3F...) for view mode.
+    # Strip any query-string suffix before comparing.
+    clean = token.split("?")[0]
+    return hmac.compare_digest(make_wopi_token(contract_id), clean)
 
 
 def _latest(contract: dict) -> dict | None:
+    """Return a version-like dict for the contract's current file."""
+    file_url = contract.get("file_url")
+    if not file_url:
+        versions = contract.get("versions", [])
+        return versions[-1] if versions else None
+    # Build a synthetic version entry from top-level fields
+    _, ext = os.path.splitext(file_url)
     versions = contract.get("versions", [])
-    return versions[-1] if versions else None
+    # Use version metadata but override file_url with the current active file
+    base = versions[-1].copy() if versions else {}
+    base["file_url"] = file_url
+    base["file_type"] = ext.lower() or base.get("file_type", ".docx")
+    return base
 
 
 @router.get("/files/{contract_id}")
