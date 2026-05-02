@@ -1,9 +1,7 @@
-import io
 import os
 import uuid
 from datetime import datetime, timedelta
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Depends
 from typing import Optional
 from app.models.contract import (
@@ -25,7 +23,7 @@ from app.services.contract_service import (
     update_workflow_stage,
     get_dashboard_stats,
 )
-from app.config import contracts_collection, UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE, COLLABORA_INTERNAL_URL
+from app.config import contracts_collection, UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE
 from app.middleware.auth import get_current_user_with_role
 from app.services.audit_service import create_audit_log
 from app.models.audit_log import AuditAction
@@ -82,35 +80,34 @@ async def dashboard_statistics():
 
 # Must be above /{contract_id} or FastAPI matches "upload" as an ID
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from a PDF using PyPDF2."""
+    """Extract text from a PDF using PyMuPDF (fitz)."""
     try:
-        import io
-        from PyPDF2 import PdfReader
-
-        reader = PdfReader(io.BytesIO(file_bytes))
-        pages_text = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                pages_text.append(text)
-        return "\n\n".join(pages_text)
+        import fitz
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        return "\n\n".join(page.get_text() for page in doc)
     except Exception:
         return ""
 
 
-async def _convert_pdf_to_docx(pdf_content: bytes) -> bytes | None:
-    """Convert PDF bytes to DOCX using Collabora's built-in conversion API."""
+def _convert_pdf_to_docx(pdf_content: bytes) -> bytes | None:
+    """Convert PDF bytes to DOCX using pdf2docx (pure Python, no external service needed)."""
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{COLLABORA_INTERNAL_URL}/cool/convert-to/docx",
-                files={"data": ("document.pdf", io.BytesIO(pdf_content), "application/pdf")},
-            )
-            if resp.status_code == 200:
-                return resp.content
+        import tempfile
+        from pdf2docx import Converter
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as pdf_tmp:
+            pdf_tmp.write(pdf_content)
+            pdf_tmp_path = pdf_tmp.name
+        docx_tmp_path = pdf_tmp_path.replace(".pdf", ".docx")
+        cv = Converter(pdf_tmp_path)
+        cv.convert(docx_tmp_path, start=0, end=None)
+        cv.close()
+        with open(docx_tmp_path, "rb") as f:
+            result = f.read()
+        os.unlink(pdf_tmp_path)
+        os.unlink(docx_tmp_path)
+        return result
     except Exception:
-        pass
-    return None
+        return None
 
 
 @router.post("/upload")
@@ -142,11 +139,11 @@ async def upload_and_create_contract(
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # For PDFs: convert to DOCX via Collabora so the document is fully editable.
+    # For PDFs: convert to DOCX via pdf2docx so the document is fully editable.
     # The original PDF is kept as version 1; the DOCX becomes version 2 (working copy).
     pdf_original_stored = None
     if ext == ".pdf":
-        docx_bytes = await _convert_pdf_to_docx(content)
+        docx_bytes = _convert_pdf_to_docx(content)
         if docx_bytes:
             pdf_original_stored = stored_filename
             docx_id = uuid.uuid4().hex
