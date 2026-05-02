@@ -6,7 +6,6 @@ from app.services.auth_service import (
     get_or_create_user,
     get_user_by_clerk_id,
     update_user,
-    get_all_users,
     update_user_role,
     deactivate_user,
     activate_user,
@@ -159,6 +158,41 @@ async def update_my_profile(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+# --- Bootstrap ---
+
+@router.post("/bootstrap-admin")
+async def bootstrap_admin(current_user: dict = Depends(get_current_user)):
+    """Promote the caller to admin if — and only if — no admin exists yet.
+    Safe to leave deployed: once one admin exists this endpoint is permanently locked."""
+    from app.config import users_collection as _uc
+    if _uc.count_documents({"role": "admin"}) > 0:
+        raise HTTPException(status_code=409, detail="An admin already exists. Use the Users panel to manage roles.")
+
+    clerk_id = current_user["user_id"]
+    db_user = get_user_by_clerk_id(clerk_id)
+    if not db_user:
+        # User hasn't synced yet — create their record first
+        clerk_profile = await _fetch_clerk_user(clerk_id)
+        profile = _extract_clerk_profile(clerk_profile) if clerk_profile else {}
+        email = profile.get("email") or current_user.get("email", "")
+        full_name = profile.get("full_name") or f"{current_user.get('first_name','')} {current_user.get('last_name','')}".strip()
+        db_user = get_or_create_user(clerk_id=clerk_id, email=email, full_name=full_name)
+
+    mongo_id = db_user.get("id") or db_user.get("_id")
+    user = update_user_role(str(mongo_id), "admin")
+    await _sync_role_to_clerk(clerk_id, "admin")
+
+    create_audit_log(
+        action=AuditAction.update,
+        resource_type="user",
+        resource_id=str(mongo_id),
+        user_id=clerk_id,
+        user_email=db_user.get("email"),
+        details="Bootstrap: first admin assigned",
+    )
+    return {"message": "You are now admin.", "user": user}
 
 
 # --- Admin endpoints ---

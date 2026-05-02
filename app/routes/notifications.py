@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, get_current_user_with_role
 from app.services.notification_service import (
     get_user_notifications,
     mark_as_read,
@@ -8,6 +8,8 @@ from app.services.notification_service import (
     get_unread_count,
 )
 from app.services.email_service import send_test_email, scan_and_send_expiry_alerts
+from app.config import notification_settings_collection
+from app.models.notification_config import NotificationSettingsDoc
 import os
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
@@ -65,7 +67,7 @@ async def mark_all_notifications_read(
 # ── Email endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/email-config")
-async def get_email_config(current_user: dict = Depends(get_current_user)):
+async def get_email_config(_current_user: dict = Depends(get_current_user)):
     """Return whether SMTP email is configured (never expose the password)."""
     smtp_email = os.getenv("SMTP_EMAIL", "")
     return {
@@ -77,7 +79,7 @@ async def get_email_config(current_user: dict = Depends(get_current_user)):
 @router.post("/send-test-email")
 async def send_test_email_endpoint(
     body: TestEmailRequest,
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ):
     """Send a test email to verify SMTP configuration."""
     if not body.to_email:
@@ -91,10 +93,57 @@ async def send_test_email_endpoint(
 @router.post("/send-expiry-alerts")
 async def trigger_expiry_alerts(
     dry_run: bool = Query(False, description="If true, count only — do not send"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_with_role),
 ):
     """Scan all contracts and send expiry alert emails (admin/manager only)."""
     if current_user.get("role") not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin or manager access required")
     result = scan_and_send_expiry_alerts(dry_run=dry_run)
     return result
+
+
+# ── Notification settings (admin only) ───────────────────────────────────────
+
+_MASKED = "__set__"
+
+def _mask(doc: dict) -> dict:
+    """Return a copy of doc with sensitive fields replaced by _MASKED sentinel."""
+    import copy
+    d = copy.deepcopy(doc)
+    if d.get("email", {}).get("password"):
+        d["email"]["password"] = _MASKED
+    if d.get("sms", {}).get("auth_token"):
+        d["sms"]["auth_token"] = _MASKED
+    return d
+
+
+def _default_settings() -> dict:
+    return NotificationSettingsDoc().model_dump()
+
+
+@router.get("/settings")
+async def get_notification_settings(_current_user: dict = Depends(get_current_user)):
+    """Return current notification settings (passwords masked)."""
+    doc = notification_settings_collection.find_one({}, {"_id": 0})
+    return _mask(doc) if doc else _default_settings()
+
+
+@router.put("/settings")
+async def save_notification_settings(
+    body: dict,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Persist notification settings (admin/manager only). Masked sentinel preserves stored secrets."""
+    if current_user.get("role") not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    existing = notification_settings_collection.find_one({}, {"_id": 0}) or {}
+
+    # Preserve stored secrets when the frontend sends back the masked sentinel
+    if body.get("email", {}).get("password") == _MASKED:
+        body.setdefault("email", {})["password"] = existing.get("email", {}).get("password", "")
+    if body.get("sms", {}).get("auth_token") == _MASKED:
+        body.setdefault("sms", {})["auth_token"] = existing.get("sms", {}).get("auth_token", "")
+
+    notification_settings_collection.replace_one({}, body, upsert=True)
+    return {"message": "Settings saved"}
