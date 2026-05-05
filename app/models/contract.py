@@ -143,8 +143,8 @@ class ContractResponse(BaseModel):
     contract_type: ContractType
     description: Optional[str] = None
     parties: List[ContractParty] = []
-    start_date: datetime
-    end_date: datetime
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     value: Optional[float] = None
     status: ContractStatus
     workflow_stage: WorkflowStage

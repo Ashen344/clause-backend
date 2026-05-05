@@ -1,8 +1,8 @@
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, UploadFile, File, Depends
 from typing import Optional
 from app.models.contract import (
     ContractCreate,
@@ -89,6 +89,24 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
         return ""
 
 
+def _extract_text_from_docx(file_bytes: bytes) -> str:
+    """Extract plain text from a DOCX file using python-docx."""
+    try:
+        import io
+        from docx import Document
+        doc = Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        paragraphs.append(cell.text.strip())
+        return "\n".join(paragraphs)
+    except Exception:
+        return ""
+
+
 def _convert_pdf_to_docx(pdf_content: bytes) -> bytes | None:
     """Convert PDF bytes to DOCX using pdf2docx (pure Python, no external service needed)."""
     try:
@@ -113,6 +131,7 @@ def _convert_pdf_to_docx(pdf_content: bytes) -> bytes | None:
 @router.post("/upload")
 async def upload_and_create_contract(
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
     current_user: dict = Depends(get_current_user_with_role),
 ):
     """Upload a document (PDF/DOCX/TXT) and create a new draft contract from it."""
@@ -158,7 +177,10 @@ async def upload_and_create_contract(
     # Extract text for downstream AI analysis / display
     extracted_text = ""
     if pdf_original_stored:
+        # PDF was converted to DOCX — extract from the original PDF
         extracted_text = _extract_text_from_pdf(open(os.path.join(UPLOAD_DIR, pdf_original_stored), "rb").read())
+    elif ext == ".docx":
+        extracted_text = _extract_text_from_docx(content)
     elif ext == ".txt":
         try:
             extracted_text = content.decode("utf-8", errors="replace")
@@ -189,8 +211,8 @@ async def upload_and_create_contract(
         "contract_type": "other",
         "description": f"Created from uploaded file: {original_name}",
         "parties": [],
-        "start_date": now,
-        "end_date": now + timedelta(days=365),
+        "start_date": None,
+        "end_date": None,
         "value": None,
         "payment_terms": None,
         "status": "draft",
@@ -215,6 +237,11 @@ async def upload_and_create_contract(
     result = contracts_collection.insert_one(contract_doc)
     contract_doc["id"] = str(result.inserted_id)
     del contract_doc["_id"]
+
+    # Trigger AI analysis in the background to extract dates, parties, type, value
+    if extracted_text and background_tasks is not None:
+        from app.services.ai_service import analyze_contract_by_id
+        background_tasks.add_task(analyze_contract_by_id, contract_doc["id"])
 
     create_audit_log(
         action=AuditAction.file_upload,
