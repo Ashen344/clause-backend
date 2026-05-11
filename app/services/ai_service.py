@@ -44,17 +44,36 @@ def _agent_url(path: str) -> str:
 
 
 def _build_contract_text(contract: dict) -> str:
-    """Build readable text from a contract document for AI analysis."""
+    """Build text for AI analysis — actual document content takes priority over metadata."""
+    extracted = (contract.get("extracted_text") or "").strip()
+    if extracted:
+        # Prepend a brief metadata header so the AI knows what it's reading,
+        # then append the full document content.
+        header_parts = [f"Title: {contract.get('title', 'N/A')}"]
+        if contract.get("contract_type"):
+            header_parts.append(f"Type: {contract['contract_type']}")
+        parties = contract.get("parties", [])
+        if parties:
+            names = ", ".join(p.get("name", "Unknown") for p in parties)
+            header_parts.append(f"Parties: {names}")
+        header = "\n".join(header_parts)
+        return f"{header}\n\n--- DOCUMENT CONTENT ---\n\n{extracted}"
+
+    # Fallback: no extracted text — build from stored metadata fields only
     parts = [
         f"Title: {contract.get('title', 'N/A')}",
         f"Type: {contract.get('contract_type', 'N/A')}",
         f"Description: {contract.get('description', 'N/A')}",
         f"Status: {contract.get('status', 'N/A')}",
-        f"Start Date: {contract.get('start_date', 'N/A')}",
-        f"End Date: {contract.get('end_date', 'N/A')}",
-        f"Value: {contract.get('value', 'N/A')}",
-        f"Payment Terms: {contract.get('payment_terms', 'N/A')}",
     ]
+    if contract.get("start_date"):
+        parts.append(f"Start Date: {contract['start_date']}")
+    if contract.get("end_date"):
+        parts.append(f"End Date: {contract['end_date']}")
+    if contract.get("value"):
+        parts.append(f"Value: {contract['value']}")
+    if contract.get("payment_terms"):
+        parts.append(f"Payment Terms: {contract['payment_terms']}")
 
     parties = contract.get("parties", [])
     if parties:
@@ -66,6 +85,62 @@ def _build_contract_text(contract: dict) -> str:
         parts.append(f"Tags: {', '.join(tags)}")
 
     return "\n".join(parts)
+
+
+def _apply_extracted_metadata(contract: dict, update_fields: dict, key_info: dict) -> None:
+    """Write AI-extracted metadata into update_fields, skipping fields already set."""
+    from datetime import datetime as _dt
+
+    _DATE_FMTS = [
+        "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y",
+        "%d %B %Y", "%B %d, %Y", "%B %d %Y",
+        "%d %b %Y", "%b %d, %Y", "%b %d %Y",
+        "%Y/%m/%d",
+    ]
+
+    def _parse_date(raw: str):
+        s = str(raw).strip()
+        for fmt in _DATE_FMTS:
+            try:
+                return _dt.strptime(s, fmt)
+            except ValueError:
+                continue
+        return None
+
+    # Dates — only fill in if currently None/missing
+    for field, key in (("start_date", "start_date"), ("end_date", "end_date")):
+        if not contract.get(field) and key_info.get(key):
+            raw = key_info[key]
+            if raw and str(raw).strip().lower() not in ("null", "none", "n/a", ""):
+                parsed = _parse_date(raw)
+                if parsed:
+                    update_fields[field] = parsed
+
+    # Contract value — strip currency symbols and commas before parsing
+    if contract.get("value") is None and key_info.get("contract_value"):
+        raw_val = str(key_info["contract_value"])
+        # Remove currency symbols, spaces, and commas
+        cleaned = "".join(c for c in raw_val if c.isdigit() or c == ".")
+        if cleaned:
+            try:
+                update_fields["value"] = float(cleaned)
+            except (ValueError, TypeError):
+                pass
+
+    # Contract type — only overwrite the default "other"
+    if contract.get("contract_type") in (None, "other") and key_info.get("contract_type"):
+        ct = key_info["contract_type"].lower().strip()
+        valid = {"nda", "service", "employment", "lease", "purchase", "partnership", "licensing", "other"}
+        if ct in valid:
+            update_fields["contract_type"] = ct
+
+    # Parties — only fill if currently empty
+    if not contract.get("parties") and key_info.get("parties"):
+        raw_parties = key_info["parties"]
+        if isinstance(raw_parties, list) and raw_parties:
+            update_fields["parties"] = [
+                {"name": str(p), "role": "party"} for p in raw_parties if p
+            ]
 
 
 # ── Contract Text Analysis ─────────────────────────────────────────────────
@@ -128,6 +203,10 @@ async def analyze_contract_by_id(contract_id: str) -> Optional[dict]:
         update_fields["risk_level"] = analysis["risk_level"]
     if analysis.get("risk_score") is not None:
         update_fields["risk_score"] = analysis["risk_score"]
+
+    # Write back extracted contract metadata only if the field is currently unset
+    key_info = analysis.get("key_information") or {}
+    _apply_extracted_metadata(contract, update_fields, key_info)
 
     contracts_collection.update_one(
         {"_id": ObjectId(contract_id)},
@@ -271,9 +350,13 @@ async def detect_conflicts(contract_ids: list[str]) -> dict:
             )
             response.raise_for_status()
             result = response.json()
-            # Enrich with contract IDs for the frontend
+            # Enrich with contract IDs, titles, and version info for the frontend
             result["contracts_analyzed"] = [
-                {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
+                {
+                    "id": str(c["_id"]),
+                    "title": c.get("title", "Untitled"),
+                    "current_version": c.get("current_version", 1),
+                }
                 for c in contracts
             ]
             result["analyzed_at"] = datetime.utcnow().isoformat()

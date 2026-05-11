@@ -382,6 +382,168 @@ async def save_document_text(
     }
 
 
+# ── Generate DOCX from template content ──────────────────────────────────────
+
+@router.post("/generate-from-template/{contract_id}")
+async def generate_document_from_template(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate a .docx file from the contract's linked template content and attach it."""
+    from app.config import templates_collection
+    from docx import Document as DocxDocument  # type: ignore[import]
+    from docx.shared import Inches  # type: ignore[import]
+    import io, re as _re
+
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=400, detail="Invalid contract ID")
+
+    contract = contracts_collection.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    template_id = contract.get("template_id")
+    if not template_id or not ObjectId.is_valid(template_id):
+        raise HTTPException(status_code=400, detail="Contract has no linked template")
+
+    template = templates_collection.find_one({"_id": ObjectId(template_id)})
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    content: str = template.get("content", "")
+    title: str = contract.get("title", template.get("name", "Contract"))
+
+    # ── Build DOCX from markdown-like content ──────────────────────────────
+    doc = DocxDocument()
+
+    # Page margins
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1.2)
+        section.right_margin = Inches(1.2)
+
+    def _add_inline_bold(para, text: str):
+        """Split text on **bold** markers and add runs accordingly."""
+        parts = _re.split(r'\*\*(.+?)\*\*', text)
+        for i, part in enumerate(parts):
+            if not part:
+                continue
+            run = para.add_run(part)
+            if i % 2 == 1:  # odd indices are inside **...**
+                run.bold = True
+
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Heading 1
+        if line.startswith("# "):
+            p = doc.add_heading(line[2:].strip(), level=1)
+            i += 1
+        # Heading 2
+        elif line.startswith("## "):
+            p = doc.add_heading(line[3:].strip(), level=2)
+            i += 1
+        # Heading 3
+        elif line.startswith("### "):
+            p = doc.add_heading(line[4:].strip(), level=3)
+            i += 1
+        # Table separator row — skip (markdown table dividers like |---|---|)
+        elif _re.match(r'^\|[-| :]+\|$', line.strip()):
+            i += 1
+        # Table row
+        elif line.strip().startswith("|") and line.strip().endswith("|"):
+            # Collect all consecutive table rows
+            table_rows = []
+            while i < len(lines) and lines[i].strip().startswith("|") and lines[i].strip().endswith("|"):
+                row_line = lines[i].strip()
+                # Skip divider rows
+                if not _re.match(r'^\|[-| :]+\|$', row_line):
+                    cells = [c.strip() for c in row_line.strip("|").split("|")]
+                    table_rows.append(cells)
+                i += 1
+            if table_rows:
+                num_cols = max(len(r) for r in table_rows)
+                tbl = doc.add_table(rows=len(table_rows), cols=num_cols)
+                tbl.style = "Table Grid"
+                for ri, row in enumerate(table_rows):
+                    for ci, cell_text in enumerate(row):
+                        if ci < num_cols:
+                            cell = tbl.cell(ri, ci)
+                            cell.text = cell_text
+                            if ri == 0:
+                                for run in cell.paragraphs[0].runs:
+                                    run.bold = True
+        # Bullet list
+        elif line.startswith("- "):
+            p = doc.add_paragraph(style="List Bullet")
+            _add_inline_bold(p, line[2:].strip())
+            i += 1
+        # Horizontal rule
+        elif line.strip() in ("---", "___", "***"):
+            doc.add_paragraph("_" * 60)
+            i += 1
+        # Empty line → paragraph break
+        elif line.strip() == "":
+            doc.add_paragraph("")
+            i += 1
+        # Normal paragraph
+        else:
+            p = doc.add_paragraph()
+            _add_inline_bold(p, line.strip())
+            i += 1
+
+    # ── Save to bytes and write to upload dir ─────────────────────────────
+    buf = io.BytesIO()
+    doc.save(buf)
+    file_bytes = buf.getvalue()
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    file_id = uuid.uuid4().hex
+    stored_filename = f"{file_id}.docx"
+    file_path = os.path.join(UPLOAD_DIR, stored_filename)
+    with open(file_path, "wb") as f:
+        f.write(file_bytes)
+
+    # ── Attach as version 1 of the contract ───────────────────────────────
+    current_version = contract.get("current_version", 0)
+    new_version = current_version + 1
+    safe_title = _re.sub(r'[^\w\s-]', '', title).strip().replace(" ", "_") or "contract"
+    original_filename = f"{safe_title}.docx"
+
+    version_entry = {
+        "version_number": new_version,
+        "file_url": stored_filename,
+        "original_filename": original_filename,
+        "file_size": len(file_bytes),
+        "file_type": ".docx",
+        "uploaded_by": current_user.get("user_id", "system"),
+        "uploaded_at": datetime.utcnow(),
+        "change_notes": f"Generated from template: {template.get('name', '')}",
+    }
+
+    contracts_collection.update_one(
+        {"_id": ObjectId(contract_id)},
+        {
+            "$push": {"versions": version_entry},
+            "$set": {
+                "file_url": stored_filename,
+                "current_version": new_version,
+                "updated_at": datetime.utcnow(),
+            },
+        },
+    )
+
+    return {
+        "message": "Document generated from template",
+        "version": new_version,
+        "filename": original_filename,
+        "file_type": ".docx",
+    }
+
+
 # ── Rich-text export (DOCX / PDF) — no LibreOffice needed ────────────────────
 
 class SaveHtmlRequest(BaseModel):

@@ -84,9 +84,9 @@ async def send_test_email_endpoint(
     """Send a test email to verify SMTP configuration."""
     if not body.to_email:
         raise HTTPException(status_code=400, detail="to_email is required")
-    ok = send_test_email(body.to_email)
+    ok, error_msg = send_test_email(body.to_email)
     if not ok:
-        raise HTTPException(status_code=503, detail="Failed to send email. Check your SMTP settings.")
+        raise HTTPException(status_code=503, detail=error_msg or "Failed to send email. Check your SMTP settings.")
     return {"message": f"Test email sent to {body.to_email}"}
 
 

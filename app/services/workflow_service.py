@@ -50,12 +50,16 @@ async def create_workflow(workflow_data: WorkflowCreate, user_id: str) -> dict:
 
     result = workflows_collection.insert_one(workflow_dict)
 
-    # Link workflow to contract
+    # Store workflow metadata on the contract for progress bar rendering
+    step_names = [s.get("name", f"Step {s.get('step_number', i+1)}") for i, s in enumerate(steps_dicts)]
     contracts_collection.update_one(
         {"_id": ObjectId(workflow_data.contract_id)},
         {"$set": {
             "workflow_id": str(result.inserted_id),
             "workflow_stage": "request",
+            "workflow_total_steps": len(steps_dicts),
+            "workflow_current_step": 1,
+            "workflow_step_names": step_names,
             "updated_at": datetime.utcnow(),
         }}
     )
@@ -134,11 +138,11 @@ async def advance_workflow(workflow_id: str, user_id: str, comments: str = None)
         update["status"] = WorkflowStatus.completed.value
         update["completed_at"] = datetime.utcnow()
 
-        # Update contract status to active
+        # Update contract status to active and mark workflow stage as completed
         if workflow.get("contract_id"):
             contracts_collection.update_one(
                 {"_id": ObjectId(workflow["contract_id"])},
-                {"$set": {"status": "active", "workflow_stage": "storage", "updated_at": datetime.utcnow()}}
+                {"$set": {"status": "active", "workflow_stage": "completed", "updated_at": datetime.utcnow()}}
             )
     else:
         # Activate next step
@@ -154,7 +158,11 @@ async def advance_workflow(workflow_id: str, user_id: str, comments: str = None)
         if workflow.get("contract_id"):
             contracts_collection.update_one(
                 {"_id": ObjectId(workflow["contract_id"])},
-                {"$set": {"workflow_stage": new_stage, "updated_at": datetime.utcnow()}}
+                {"$set": {
+                    "workflow_stage": new_stage,
+                    "workflow_current_step": next_step,
+                    "updated_at": datetime.utcnow(),
+                }}
             )
 
     workflows_collection.update_one(
@@ -192,11 +200,58 @@ async def reject_workflow(workflow_id: str, user_id: str, reason: str = None) ->
         }}
     )
 
-    # Revert contract to draft
+    # Mark contract as rejected — keep the stage it was at so the UI can show where it failed
     if workflow.get("contract_id"):
+        stage_map = {
+            1: "request", 2: "authoring", 3: "review", 4: "review",
+            5: "approval", 6: "execution", 7: "storage", 8: "monitoring", 9: "renewal",
+        }
+        rejected_stage = stage_map.get(workflow["current_step"], "request")
         contracts_collection.update_one(
             {"_id": ObjectId(workflow["contract_id"])},
-            {"$set": {"status": "draft", "workflow_stage": "request", "updated_at": datetime.utcnow()}}
+            {"$set": {
+                "status": "draft",
+                "workflow_stage": rejected_stage,
+                "workflow_current_step": workflow["current_step"],
+                "workflow_rejected": True,
+                "updated_at": datetime.utcnow(),
+            }}
         )
 
+    return await get_workflow(workflow_id)
+
+
+async def pause_workflow(workflow_id: str, _user_id: str, reason: str = None) -> Optional[dict]:
+    """Pause an active workflow."""
+    if not ObjectId.is_valid(workflow_id):
+        return None
+
+    workflow = workflows_collection.find_one({"_id": ObjectId(workflow_id)})
+    if not workflow or workflow["status"] != WorkflowStatus.active.value:
+        return None
+
+    update = {
+        "status": WorkflowStatus.paused.value,
+        "updated_at": datetime.utcnow(),
+    }
+    if reason:
+        update["pause_reason"] = reason
+
+    workflows_collection.update_one({"_id": ObjectId(workflow_id)}, {"$set": update})
+    return await get_workflow(workflow_id)
+
+
+async def resume_workflow(workflow_id: str, _user_id: str) -> Optional[dict]:
+    """Resume a paused workflow."""
+    if not ObjectId.is_valid(workflow_id):
+        return None
+
+    workflow = workflows_collection.find_one({"_id": ObjectId(workflow_id)})
+    if not workflow or workflow["status"] != WorkflowStatus.paused.value:
+        return None
+
+    workflows_collection.update_one(
+        {"_id": ObjectId(workflow_id)},
+        {"$set": {"status": WorkflowStatus.active.value, "updated_at": datetime.utcnow()}, "$unset": {"pause_reason": ""}}
+    )
     return await get_workflow(workflow_id)
