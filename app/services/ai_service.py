@@ -91,22 +91,41 @@ def _apply_extracted_metadata(contract: dict, update_fields: dict, key_info: dic
     """Write AI-extracted metadata into update_fields, skipping fields already set."""
     from datetime import datetime as _dt
 
+    _DATE_FMTS = [
+        "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y",
+        "%d %B %Y", "%B %d, %Y", "%B %d %Y",
+        "%d %b %Y", "%b %d, %Y", "%b %d %Y",
+        "%Y/%m/%d",
+    ]
+
+    def _parse_date(raw: str):
+        s = str(raw).strip()
+        for fmt in _DATE_FMTS:
+            try:
+                return _dt.strptime(s, fmt)
+            except ValueError:
+                continue
+        return None
+
     # Dates — only fill in if currently None/missing
     for field, key in (("start_date", "start_date"), ("end_date", "end_date")):
         if not contract.get(field) and key_info.get(key):
             raw = key_info[key]
-            if raw and raw != "null":
-                try:
-                    update_fields[field] = _dt.strptime(str(raw).strip(), "%Y-%m-%d")
-                except ValueError:
-                    pass  # unparseable date string — skip
+            if raw and str(raw).strip().lower() not in ("null", "none", "n/a", ""):
+                parsed = _parse_date(raw)
+                if parsed:
+                    update_fields[field] = parsed
 
-    # Contract value
+    # Contract value — strip currency symbols and commas before parsing
     if contract.get("value") is None and key_info.get("contract_value"):
-        try:
-            update_fields["value"] = float(str(key_info["contract_value"]).replace(",", ""))
-        except (ValueError, TypeError):
-            pass
+        raw_val = str(key_info["contract_value"])
+        # Remove currency symbols, spaces, and commas
+        cleaned = "".join(c for c in raw_val if c.isdigit() or c == ".")
+        if cleaned:
+            try:
+                update_fields["value"] = float(cleaned)
+            except (ValueError, TypeError):
+                pass
 
     # Contract type — only overwrite the default "other"
     if contract.get("contract_type") in (None, "other") and key_info.get("contract_type"):
@@ -331,9 +350,13 @@ async def detect_conflicts(contract_ids: list[str]) -> dict:
             )
             response.raise_for_status()
             result = response.json()
-            # Enrich with contract IDs for the frontend
+            # Enrich with contract IDs, titles, and version info for the frontend
             result["contracts_analyzed"] = [
-                {"id": str(c["_id"]), "title": c.get("title", "Untitled")}
+                {
+                    "id": str(c["_id"]),
+                    "title": c.get("title", "Untitled"),
+                    "current_version": c.get("current_version", 1),
+                }
                 for c in contracts
             ]
             result["analyzed_at"] = datetime.utcnow().isoformat()

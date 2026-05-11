@@ -11,6 +11,8 @@ from app.services.workflow_service import (
     get_all_workflows,
     advance_workflow,
     reject_workflow,
+    pause_workflow,
+    resume_workflow,
 )
 from app.config import workflow_templates_collection
 from app.services.audit_service import create_audit_log
@@ -250,5 +252,53 @@ async def reject_workflow_step(
         user_id=current_user["user_id"],
         user_email=current_user.get("email"),
         details=f"Workflow rejected{f': {reason}' if reason else ''}",
+    )
+    return result
+
+
+class PauseRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/{workflow_id}/pause")
+async def pause_workflow_route(
+    workflow_id: str,
+    request: PauseRequest = None,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Pause an active workflow. Admin/manager only."""
+    _require_admin_or_manager(current_user)
+    reason = request.reason if request else None
+    result = await pause_workflow(workflow_id, current_user["user_id"], reason=reason)
+    if not result:
+        raise HTTPException(status_code=400, detail="Cannot pause workflow. It may not be active.")
+    create_audit_log(
+        action=AuditAction.status_change,
+        resource_type="workflow",
+        resource_id=workflow_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Workflow paused{f': {reason}' if reason else ''}",
+    )
+    return result
+
+
+@router.post("/{workflow_id}/resume")
+async def resume_workflow_route(
+    workflow_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Resume a paused workflow. Admin/manager only."""
+    _require_admin_or_manager(current_user)
+    result = await resume_workflow(workflow_id, current_user["user_id"])
+    if not result:
+        raise HTTPException(status_code=400, detail="Cannot resume workflow. It may not be paused.")
+    create_audit_log(
+        action=AuditAction.status_change,
+        resource_type="workflow",
+        resource_id=workflow_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details="Workflow resumed",
     )
     return result

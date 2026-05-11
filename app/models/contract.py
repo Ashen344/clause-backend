@@ -36,6 +36,7 @@ class WorkflowStage(str, Enum):
     monitoring = "monitoring"            # 7. Monitoring / Obligation Management
     renewal = "renewal"                  # 8. Renewal / Amendment
     expired = "expired"                  # 9. Expiration / Termination
+    completed = "completed"              # All workflow steps done
 
 
 # Risk levels for AI-generated risk scores (FR-RSA-01)
@@ -100,6 +101,7 @@ class ContractCreate(BaseModel):
     workflow_trigger: WorkflowTrigger = WorkflowTrigger.creation
     tags: Optional[List[str]] = None                  # For categorization (FR-CM-08)
     template_id: Optional[str] = None                 # If created from a template
+    template_values: Optional[dict] = None            # Field values collected from template form
 
 
 # Schema for how a contract is stored in MongoDB

@@ -11,40 +11,63 @@ from app.middleware.auth import get_optional_user
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
+def _user_filter(current_user: dict | None) -> dict:
+    """Return a MongoDB filter scoping contracts to the current user unless they are admin/manager."""
+    if not current_user:
+        return {}
+    if current_user.get("role") in ("admin", "manager"):
+        return {}
+    return {"created_by": current_user["user_id"]}
+
+
 @router.get("/stats")
-async def get_dashboard_stats():
+async def get_dashboard_stats(current_user: dict = Depends(get_optional_user)):
     """Get overview statistics for the dashboard."""
     now = datetime.utcnow()
     thirty_days_later = now + timedelta(days=30)
 
+    base = _user_filter(current_user)
+    is_admin = not base  # empty filter means admin/manager
+
     # Contract counts by status
-    total = contracts_collection.count_documents({})
-    active = contracts_collection.count_documents({"status": "active"})
-    draft = contracts_collection.count_documents({"status": "draft"})
-    expired = contracts_collection.count_documents({"status": "expired"})
-    terminated = contracts_collection.count_documents({"status": "terminated"})
+    total = contracts_collection.count_documents(base)
+    active = contracts_collection.count_documents({**base, "status": "active"})
+    draft = contracts_collection.count_documents({**base, "status": "draft"})
+    expired = contracts_collection.count_documents({**base, "status": "expired"})
+    terminated = contracts_collection.count_documents({**base, "status": "terminated"})
 
     # Contracts expiring soon (next 30 days)
     expiring_soon = contracts_collection.count_documents({
+        **base,
         "status": "active",
         "end_date": {"$gte": now, "$lte": thirty_days_later},
     })
 
     # Risk summary
-    high_risk = contracts_collection.count_documents({"ai_analysis.risk_level": "high"})
-    medium_risk = contracts_collection.count_documents({"ai_analysis.risk_level": "medium"})
-    low_risk = contracts_collection.count_documents({"ai_analysis.risk_level": "low"})
+    high_risk = contracts_collection.count_documents({**base, "ai_analysis.risk_level": "high"})
+    medium_risk = contracts_collection.count_documents({**base, "ai_analysis.risk_level": "medium"})
+    low_risk = contracts_collection.count_documents({**base, "ai_analysis.risk_level": "low"})
 
-    # Pending approvals
-    pending_approvals = approvals_collection.count_documents({"status": "pending"})
+    # Pending approvals — scoped by user's contracts if not admin
+    if is_admin:
+        pending_approvals = approvals_collection.count_documents({"status": "pending"})
+        active_workflows = workflows_collection.count_documents({"status": "active"})
+        total_users = users_collection.count_documents({})
+    else:
+        user_contract_ids = [
+            str(c["_id"]) for c in contracts_collection.find(base, {"_id": 1})
+        ]
+        pending_approvals = approvals_collection.count_documents({
+            "status": "pending",
+            "contract_id": {"$in": user_contract_ids},
+        })
+        active_workflows = workflows_collection.count_documents({
+            "status": "active",
+            "contract_id": {"$in": user_contract_ids},
+        })
+        total_users = None
 
-    # Active workflows
-    active_workflows = workflows_collection.count_documents({"status": "active"})
-
-    # Total users
-    total_users = users_collection.count_documents({})
-
-    return {
+    result = {
         "total_contracts": total,
         "active_contracts": active,
         "draft_contracts": draft,
@@ -53,19 +76,26 @@ async def get_dashboard_stats():
         "expiring_soon": expiring_soon,
         "pending_approvals": pending_approvals,
         "active_workflows": active_workflows,
-        "total_users": total_users,
         "risk_summary": {
             "high": high_risk,
             "medium": medium_risk,
             "low": low_risk,
         },
     }
+    if total_users is not None:
+        result["total_users"] = total_users
+    return result
 
 
 @router.get("/contracts-by-type")
-async def contracts_by_type():
+async def contracts_by_type(current_user: dict = Depends(get_optional_user)):
     """Get contract count grouped by type (for pie chart)."""
-    pipeline = [
+    base = _user_filter(current_user)
+    match = {"$match": base} if base else None
+    pipeline = []
+    if match:
+        pipeline.append(match)
+    pipeline += [
         {"$group": {"_id": "$contract_type", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
@@ -74,9 +104,14 @@ async def contracts_by_type():
 
 
 @router.get("/contracts-by-status")
-async def contracts_by_status():
+async def contracts_by_status(current_user: dict = Depends(get_optional_user)):
     """Get contract count grouped by status (for bar chart)."""
-    pipeline = [
+    base = _user_filter(current_user)
+    match = {"$match": base} if base else None
+    pipeline = []
+    if match:
+        pipeline.append(match)
+    pipeline += [
         {"$group": {"_id": "$status", "count": {"$sum": 1}}},
         {"$sort": {"_id": 1}},
     ]
@@ -85,12 +120,14 @@ async def contracts_by_status():
 
 
 @router.get("/expiring-soon")
-async def expiring_soon_contracts():
+async def expiring_soon_contracts(current_user: dict = Depends(get_optional_user)):
     """Get contracts expiring within the next 30 days."""
     now = datetime.utcnow()
     thirty_days_later = now + timedelta(days=30)
+    base = _user_filter(current_user)
 
     contracts = contracts_collection.find({
+        **base,
         "status": "active",
         "end_date": {"$gte": now, "$lte": thirty_days_later},
     }).sort("end_date", 1).limit(20)
@@ -110,13 +147,14 @@ async def expiring_soon_contracts():
 
 
 @router.get("/recent-activity")
-async def recent_activity():
+async def recent_activity(current_user: dict = Depends(get_optional_user)):
     """Get recently updated contracts."""
+    base = _user_filter(current_user)
     contracts = (
         contracts_collection
-        .find()
+        .find(base)
         .sort("updated_at", -1)
-        .limit(10)
+        .limit(100)
     )
 
     results = []
@@ -133,9 +171,13 @@ async def recent_activity():
 
 
 @router.get("/monthly-stats")
-async def monthly_contract_stats():
+async def monthly_contract_stats(current_user: dict = Depends(get_optional_user)):
     """Get contract creation stats by month (for charts)."""
-    pipeline = [
+    base = _user_filter(current_user)
+    pipeline = []
+    if base:
+        pipeline.append({"$match": base})
+    pipeline += [
         {
             "$group": {
                 "_id": {

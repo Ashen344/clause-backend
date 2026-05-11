@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
+from pydantic import BaseModel
+from typing import Optional
 import httpx
 from app.middleware.auth import get_current_user
 from app.models.user import UserUpdate, UserRole
@@ -100,24 +102,43 @@ async def _sync_role_to_clerk(clerk_id: str, role: str) -> None:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+class SyncProfileBody(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+
+
 @router.post("/sync")
-async def sync_user(current_user: dict = Depends(get_current_user)):
-    """Sync user from Clerk on first login or session refresh.
-    Fetches the real name + email from the Clerk Management API so the DB
-    always holds accurate profile data."""
+async def sync_user(
+    body: SyncProfileBody = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Sync user from Clerk on first login or session refresh."""
     clerk_id = current_user["user_id"]
 
-    # Pull rich profile from Clerk Management API
-    clerk_profile = await _fetch_clerk_user(clerk_id)
-    if clerk_profile:
-        profile = _extract_clerk_profile(clerk_profile)
-        email     = profile["email"]     or current_user.get("email", "")
-        full_name = profile["full_name"] or f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()
-    else:
-        email     = current_user.get("email", "")
-        full_name = f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()
+    # Use name/email sent directly from the frontend (most reliable source).
+    # Fall back to Clerk Management API, then to JWT claims.
+    full_name = (body.full_name if body else None) or ""
+    email     = (body.email     if body else None) or ""
+
+    if not full_name or not email:
+        clerk_profile = await _fetch_clerk_user(clerk_id)
+        if clerk_profile:
+            profile   = _extract_clerk_profile(clerk_profile)
+            full_name = full_name or profile["full_name"]
+            email     = email     or profile["email"]
+
+    full_name = full_name or f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()
+    email     = email     or current_user.get("email", "")
 
     user = get_or_create_user(clerk_id=clerk_id, email=email, full_name=full_name)
+
+    # Patch name/email if the existing record had empty values (e.g. first sync without secret key)
+    if user.get("full_name") != full_name or user.get("email") != email:
+        from app.config import users_collection as _uc
+        _uc.update_one({"clerk_id": clerk_id}, {"$set": {"full_name": full_name, "email": email}})
+        user["full_name"] = full_name
+        user["email"] = email
+
     return user
 
 

@@ -1,7 +1,7 @@
 from bson import ObjectId
 from datetime import datetime
 from typing import Optional
-from app.config import contracts_collection
+from app.config import contracts_collection, users_collection, workflows_collection
 from app.models.contract import (
     ContractCreate,
     ContractInDB,
@@ -16,8 +16,53 @@ def contract_to_response(contract: dict) -> dict:
     contract["id"] = str(contract["_id"])
     del contract["_id"]
 
+    # Resolve created_by (clerk_id) → human-readable name/email
+    stored = contract.get("created_by_name", "")
+    if not stored or stored.startswith("user_"):
+        clerk_id = contract.get("created_by")
+        if clerk_id:
+            user = users_collection.find_one({"clerk_id": clerk_id}, {"full_name": 1, "email": 1})
+            contract["created_by_name"] = (
+                user.get("email") or user.get("full_name") if user else None
+            ) or clerk_id
+        else:
+            contract["created_by_name"] = None
+
+    # Auto-derive workflow_rejected from live workflow if not already stored on the contract
+    if not contract.get("workflow_rejected") and contract.get("workflow_id"):
+        wf_id = contract["workflow_id"]
+        if ObjectId.is_valid(wf_id):
+            wf = workflows_collection.find_one(
+                {"_id": ObjectId(wf_id)},
+                {"status": 1, "current_step": 1, "steps": 1},
+            )
+            if wf and wf.get("status") == "cancelled":
+                steps = wf.get("steps", [])
+                rejected_step = next(
+                    (s for s in steps if s.get("status") == "rejected"), None
+                )
+                step_num = (
+                    rejected_step.get("step_number", wf.get("current_step", 1))
+                    if rejected_step
+                    else wf.get("current_step", 1)
+                )
+                stage_map = {
+                    1: "request", 2: "authoring", 3: "review", 4: "review",
+                    5: "approval", 6: "execution", 7: "storage",
+                    8: "monitoring", 9: "renewal",
+                }
+                contract["workflow_rejected"] = True
+                contract["workflow_stage"] = stage_map.get(step_num, "request")
+                contract["workflow_current_step"] = step_num
+                if not contract.get("workflow_total_steps"):
+                    contract["workflow_total_steps"] = len(steps)
+                if not contract.get("workflow_step_names"):
+                    contract["workflow_step_names"] = [
+                        s.get("name") or "Step {}".format(i + 1)
+                        for i, s in enumerate(steps)
+                    ]
+
     # Pull risk info from nested ai_analysis into top-level fields
-    # so the frontend can display them easily without digging into nested objects
     if contract.get("ai_analysis"):
         contract["risk_score"] = contract["ai_analysis"].get("risk_score")
         contract["risk_level"] = contract["ai_analysis"].get("risk_level")
@@ -29,13 +74,13 @@ def contract_to_response(contract: dict) -> dict:
 
 
 # CREATE a new contract
-async def create_contract(contract_data: ContractCreate, user_id: str) -> dict:
-    # Build the full document that goes into MongoDB
-    # We take what the user sent and add server-controlled fields
+async def create_contract(contract_data: ContractCreate, user_id: str, created_by_name: str = None) -> dict:
     contract_dict = ContractInDB(
-        **contract_data.model_dump(),    # Spread all fields from the request
-        created_by=user_id,              # Server sets who created it
+        **contract_data.model_dump(),
+        created_by=user_id,
     ).model_dump()
+    if created_by_name:
+        contract_dict["created_by_name"] = created_by_name
 
     # Insert into MongoDB - this returns an object with the new document's ID
     result = contracts_collection.insert_one(contract_dict)

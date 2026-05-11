@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Optional
 import httpx
+from pymongo import ReturnDocument
 from app.config import CLERK_SECRET_KEY, CLERK_ISSUER, users_collection
 
 security = HTTPBearer(auto_error=False)
@@ -85,12 +86,27 @@ async def get_current_user_with_role(
     """Like get_current_user but also attaches the user's role from our DB."""
     user_data = await get_current_user(credentials)
 
-    db_user = users_collection.find_one({"clerk_id": user_data["user_id"]})
-    if db_user:
-        user_data["role"] = db_user.get("role", "user")
-        user_data["db_id"] = str(db_user["_id"])
-    else:
-        user_data["role"] = "user"
-        user_data["db_id"] = None
+    first = user_data.get("first_name", "").strip()
+    last = user_data.get("last_name", "").strip()
+    full_name = f"{first} {last}".strip() or user_data.get("email", "")
+
+    # Only overwrite email/full_name if the JWT actually contains them —
+    # otherwise we'd wipe values that were stored by /api/auth/sync
+    set_doc = {"clerk_id": user_data["user_id"]}
+    if user_data.get("email"):
+        set_doc["email"] = user_data["email"]
+    if full_name:
+        set_doc["full_name"] = full_name
+
+    db_user = users_collection.find_one_and_update(
+        {"clerk_id": user_data["user_id"]},
+        {"$set": set_doc, "$setOnInsert": {"role": "user", "status": "active"}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+
+    user_data["role"] = db_user.get("role", "user")
+    user_data["db_id"] = str(db_user["_id"])
+    user_data["full_name"] = full_name
 
     return user_data

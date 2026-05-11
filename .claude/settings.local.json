@@ -172,7 +172,22 @@
       "PowerShell(wsl -e bash -c \"echo '' >> /home/thevindu/clm_project/.env && echo '# �� Email / SMTP ���������������������������������������������������������' >> /home/thevindu/clm_project/.env && echo 'SMTP_EMAIL=notificationsfromclause@gmail.com' >> /home/thevindu/clm_project/.env && echo 'SMTP_PASSWORD=fsnfhckypfmcphpb' >> /home/thevindu/clm_project/.env && echo 'Added SMTP to .env'\" 2>&1)",
       "Read(///wsl.localhost/Ubuntu/home/thevindu/clm_project/**)",
       "PowerShell(wsl -e bash -c \"cd /home/thevindu/clm_project && docker compose up -d backend 2>&1\")",
-      "PowerShell(wsl -e bash -c \"sleep 10 && docker exec clm_backend env | grep SMTP\" 2>&1)"
+      "PowerShell(wsl -e bash -c \"sleep 10 && docker exec clm_backend env | grep SMTP\" 2>&1)",
+      "PowerShell(wsl bash -c \"ls /home/thevindu/cluasue/Front/ 2>&1 | head -20\")",
+      "PowerShell(wsl bash -c \"which sh && which bash && ls /bin/sh\")",
+      "PowerShell(wsl bash -c \"export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:\\\\$PATH && cd /home/thevindu/cluasue/Front && npm run build\")",
+      "PowerShell(wsl bash -c \"cd /home/thevindu/clm_project && docker compose build nginx && docker compose up -d nginx 2>&1\")",
+      "PowerShell(wsl bash -c \"docker cp /mnt/c/Users/MSI/Desktop/UNI_CLM/clause-agents/main.py clm_agents:/app/main.py && docker restart clm_agents && echo 'agents restarted'\")",
+      "PowerShell(wsl bash -c \"cp '/mnt/c/Users/MSI/Desktop/UNI_CLM/Clause-Frontend/src/pages/contract-details-page.tsx' /home/thevindu/cluasue/Front/src/pages/contract-details-page.tsx && export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:\\\\$PATH && cd /home/thevindu/cluasue/Front && npm run build 2>&1\")",
+      "PowerShell(wsl bash -c \"cp '/mnt/c/Users/MSI/Desktop/UNI_CLM/Clause-Frontend/src/components/chat-popup.tsx' /home/thevindu/cluasue/Front/src/components/chat-popup.tsx && export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:\\\\$PATH && cd /home/thevindu/cluasue/Front && npm run build 2>&1\")",
+      "PowerShell(wsl bash -c \"cp '/mnt/c/Users/MSI/Desktop/UNI_CLM/Clause-Frontend/src/pages/contract-details-page.tsx' /home/thevindu/cluasue/Front/src/pages/contract-details-page.tsx && export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:\\\\$PATH && cd /home/thevindu/cluasue/Front && npm run build 2>&1 && cd /home/thevindu/clm_project && docker compose build nginx && docker compose up -d nginx 2>&1\")",
+      "PowerShell(wsl bash -c \"cp '/mnt/c/Users/MSI/Desktop/UNI_CLM/Clause-Frontend/src/pages/admin-overview-page.tsx' /home/thevindu/cluasue/Front/src/pages/admin-overview-page.tsx && export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:\\\\$PATH && cd /home/thevindu/cluasue/Front && npm run build 2>&1 && cd /home/thevindu/clm_project && docker compose build nginx && docker compose up -d nginx 2>&1\")",
+      "PowerShell(wsl bash -c \"docker cp /mnt/c/Users/MSI/Desktop/UNI_CLM/clause-backend/app/routes/dashboard.py clm_backend:/app/app/routes/dashboard.py && docker restart clm_backend && echo 'done'\")",
+      "PowerShell(wsl bash -c \"docker cp /mnt/c/Users/MSI/Desktop/UNI_CLM/clause-backend/app/routes/dashboard.py clm_backend:/app/app/routes/dashboard.py && docker restart clm_backend && echo 'backend done'\")",
+      "PowerShell(wsl bash -c \"cp '/mnt/c/Users/MSI/Desktop/UNI_CLM/Clause-Frontend/src/pages/dashboard-page.tsx' /home/thevindu/cluasue/Front/src/pages/dashboard-page.tsx && export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:\\\\$PATH && cd /home/thevindu/cluasue/Front && npm run build 2>&1 && cd /home/thevindu/clm_project && docker compose build nginx && docker compose up -d nginx 2>&1\")",
+      "PowerShell(wsl bash -c \"docker cp /mnt/c/Users/MSI/Desktop/UNI_CLM/clause-backend/app/services/ai_service.py clm_backend:/app/app/services/ai_service.py && docker restart clm_backend && echo 'done'\")",
+      "PowerShell(wsl bash -c \"docker cp /mnt/c/Users/MSI/Desktop/UNI_CLM/backfill_dates.py clm_backend:/app/backfill_dates.py && docker exec clm_backend python3 backfill_dates.py 2>&1\")",
+      "PowerShell(wsl bash -c \"docker cp /mnt/c/Users/MSI/Desktop/UNI_CLM/clause-backend/app/routes/contracts.py clm_backend:/app/app/routes/contracts.py && docker restart clm_backend && echo 'done'\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\MSI",
