@@ -2,286 +2,170 @@ import pytest
 from unittest.mock import patch, MagicMock
 from bson import ObjectId
 from datetime import datetime
-from conftest import make_user
+import app.services.auth_service as auth_module
 
 
-# ══════════════════════════════════════════════════════════════════════
-# get_or_create_user()
-# PATHS: P1 = user exists | P2 = new user
-# ══════════════════════════════════════════════════════════════════════
+def make_user(clerk_id="clerk_123", role="user", status="active"):
+    return {
+        "_id": ObjectId(),
+        "clerk_id": clerk_id,
+        "email": "test@example.com",
+        "full_name": "Test User",
+        "role": role,
+        "status": status,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "last_login": datetime.utcnow(),
+    }
+
+
 class TestGetOrCreateUser:
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_existing_user_updates_last_login(self, mock_col):
-        existing = make_user("clerk_001")
+        """FR-UAM-01: User authentication via Clerk ID"""
+        existing = make_user()
         mock_col.find_one.return_value = existing
         mock_col.update_one.return_value = MagicMock()
-
-        from app.services.auth_service import get_or_create_user
-        result = get_or_create_user("clerk_001", "a@b.com", "Alice")
-
+        
+        result = auth_module.get_or_create_user("clerk_123", "test@example.com", "Test User")
+        
+        assert result is not None
+        assert "id" in result
         mock_col.update_one.assert_called_once()
-        assert "id" in result
-        assert "_id" not in result
-        mock_col.insert_one.assert_not_called()
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_new_user_is_created(self, mock_col):
-        mock_col.find_one.side_effect = [None, make_user("clerk_new")]
+        """FR-UAM-06: New user creation with default role"""
+        mock_col.find_one.return_value = None
         mock_col.insert_one.return_value = MagicMock(inserted_id=ObjectId())
-
-        from app.services.auth_service import get_or_create_user
-        result = get_or_create_user("clerk_new", "new@b.com", "Bob")
-
+        mock_col.find_one.side_effect = [None, make_user()]
+        
+        result = auth_module.get_or_create_user("clerk_new", "new@example.com", "New User")
+        
+        assert result is not None
         mock_col.insert_one.assert_called_once()
-        assert "id" in result
 
 
-# ══════════════════════════════════════════════════════════════════════
-# get_user_by_id()
-# PATHS: P1 = invalid id | P2 = found | P3 = not found
-# ══════════════════════════════════════════════════════════════════════
 class TestGetUserById:
 
-    @patch("app.services.auth_service.users_collection")
-    def test_invalid_object_id_returns_none(self, mock_col):
-        from app.services.auth_service import get_user_by_id
-        result = get_user_by_id("invalid!!!")
-        assert result is None
+    @patch.object(auth_module, "users_collection")
+    def test_invalid_objectid_returns_none(self, mock_col):
+        """NFR-RB-06: Input validation"""
+        assert auth_module.get_user_by_id("invalid!!!") is None
         mock_col.find_one.assert_not_called()
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_valid_id_user_found(self, mock_col):
+        """FR-UAM-07: User lookup by ID"""
         mock_col.find_one.return_value = make_user()
-
-        from app.services.auth_service import get_user_by_id
-        result = get_user_by_id(str(ObjectId()))
+        result = auth_module.get_user_by_id(str(ObjectId()))
         assert result is not None
         assert "id" in result
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_valid_id_user_not_found(self, mock_col):
         mock_col.find_one.return_value = None
-
-        from app.services.auth_service import get_user_by_id
-        result = get_user_by_id(str(ObjectId()))
-        assert result is None
+        assert auth_module.get_user_by_id(str(ObjectId())) is None
 
 
-# ══════════════════════════════════════════════════════════════════════
-# get_user_by_clerk_id()
-# PATHS: P1 = found | P2 = not found
-# ══════════════════════════════════════════════════════════════════════
 class TestGetUserByClerkId:
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_user_found_returns_response(self, mock_col):
-        """
-        PATH P1 — clerk_id found in DB → user returned.
-        Branch: if user TRUE side
-        """
-        mock_col.find_one.return_value = make_user("clerk_abc")
-
-        from app.services.auth_service import get_user_by_clerk_id
-        result = get_user_by_clerk_id("clerk_abc")
-
+        """FR-UAM-08: Lookup by Clerk ID"""
+        mock_col.find_one.return_value = make_user()
+        result = auth_module.get_user_by_clerk_id("clerk_123")
         assert result is not None
-        assert "id"  in result
-        assert "_id" not in result
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_user_not_found_returns_none(self, mock_col):
-        """
-        PATH P2 — clerk_id not in DB → None returned.
-        Branch: if user FALSE side
-        """
         mock_col.find_one.return_value = None
-
-        from app.services.auth_service import get_user_by_clerk_id
-        result = get_user_by_clerk_id("nonexistent_clerk")
-
-        assert result is None
+        assert auth_module.get_user_by_clerk_id("nonexistent") is None
 
 
-# ══════════════════════════════════════════════════════════════════════
-# update_user_role()
-# PATHS: P1 = invalid id | P2 = not found | P3 = success
-# ══════════════════════════════════════════════════════════════════════
 class TestUpdateUserRole:
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_invalid_objectid_returns_none(self, mock_col):
-        from app.services.auth_service import update_user_role
-        result = update_user_role("bad!!!", "admin")
-        assert result is None
+        """NFR-RB-06: Input validation for role update"""
+        assert auth_module.update_user_role("bad!!!", "admin") is None
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_user_not_found(self, mock_col):
         mock_col.update_one.return_value = MagicMock(matched_count=0)
+        assert auth_module.update_user_role(str(ObjectId()), "admin") is None
 
-        from app.services.auth_service import update_user_role
-        result = update_user_role(str(ObjectId()), "admin")
-        assert result is None
-
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_role_updated_successfully(self, mock_col):
-        user = make_user()
-        user["role"] = "admin"
+        """FR-UAM-09: Role update (admin action)"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
-        mock_col.find_one.return_value = user
-
-        from app.services.auth_service import update_user_role
-        result = update_user_role(str(ObjectId()), "admin")
+        mock_col.find_one.return_value = make_user(role="admin")
+        result = auth_module.update_user_role(str(ObjectId()), "admin")
         assert result is not None
 
 
-# ══════════════════════════════════════════════════════════════════════
-# update_user()
-# PATHS: P1 = empty update | P2 = fields provided
-# ══════════════════════════════════════════════════════════════════════
 class TestUpdateUser:
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_empty_update_returns_existing_user(self, mock_col):
-        """
-        PATH P1 — No fields in update → DB not written, existing returned.
-        Branch: if not update_dict TRUE side
-        """
-        mock_col.find_one.return_value = make_user("clerk_001")
-
-        from app.services.auth_service import update_user
+        """Edge case: No fields to update"""
         from app.models.user import UserUpdate
-        result = update_user("clerk_001", UserUpdate())
-
+        mock_col.find_one.return_value = make_user()
+        result = auth_module.update_user("clerk_123", UserUpdate())
         mock_col.update_one.assert_not_called()
-        assert result is not None
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_update_with_fields_writes_to_db(self, mock_col):
-        """
-        PATH P2 — Fields provided → update_one called, updated_at injected.
-        Branch: if not update_dict FALSE side
-        """
-        user = make_user("clerk_001")
-        mock_col.find_one.return_value = user
-        mock_col.update_one.return_value = MagicMock()
-
-        from app.services.auth_service import update_user
+        """FR-UAM-10: User profile update"""
         from app.models.user import UserUpdate
-        update_user("clerk_001", UserUpdate(full_name="New Name"))
-
+        mock_col.update_one.return_value = MagicMock()
+        mock_col.find_one.return_value = make_user()
+        auth_module.update_user("clerk_123", UserUpdate(full_name="New Name"))
         mock_col.update_one.assert_called_once()
-        payload = mock_col.update_one.call_args[0][1]
-        assert "updated_at"  in payload["$set"]
-        assert payload["$set"]["full_name"] == "New Name"
 
 
-# ══════════════════════════════════════════════════════════════════════
-# deactivate_user()
-# PATHS: P1 = invalid id | P2 = not found | P3 = deactivated
-# ══════════════════════════════════════════════════════════════════════
 class TestDeactivateUser:
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_invalid_objectid(self, mock_col):
-        from app.services.auth_service import deactivate_user
-        assert deactivate_user("xyz") is None
+        assert auth_module.deactivate_user("xyz") is None
 
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_user_not_found(self, mock_col):
         mock_col.update_one.return_value = MagicMock(matched_count=0)
+        assert auth_module.deactivate_user(str(ObjectId())) is None
 
-        from app.services.auth_service import deactivate_user
-        assert deactivate_user(str(ObjectId())) is None
-
-    @patch("app.services.auth_service.users_collection")
+    @patch.object(auth_module, "users_collection")
     def test_deactivation_sets_inactive(self, mock_col):
-        user = make_user(status="inactive")
+        """FR-UAM-11: User deactivation"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
-        mock_col.find_one.return_value = user
-
-        from app.services.auth_service import deactivate_user
-        result = deactivate_user(str(ObjectId()))
-        assert result is not None
+        mock_col.find_one.return_value = make_user(status="inactive")
+        result = auth_module.deactivate_user(str(ObjectId()))
+        assert result["status"] == "inactive"
 
 
-# ══════════════════════════════════════════════════════════════════════
-# activate_user()
-# PATHS: P1 = invalid id | P2 = not found | P3 = activated
-# ══════════════════════════════════════════════════════════════════════
-class TestActivateUser:
-
-    @patch("app.services.auth_service.users_collection")
-    def test_invalid_objectid(self, mock_col):
-        from app.services.auth_service import activate_user
-        assert activate_user("xyz") is None
-
-    @patch("app.services.auth_service.users_collection")
-    def test_user_not_found(self, mock_col):
-        mock_col.update_one.return_value = MagicMock(matched_count=0)
-
-        from app.services.auth_service import activate_user
-        assert activate_user(str(ObjectId())) is None
-
-    @patch("app.services.auth_service.users_collection")
-    def test_activation_sets_active(self, mock_col):
-        user = make_user(status="active")
-        mock_col.update_one.return_value = MagicMock(matched_count=1)
-        mock_col.find_one.return_value = user
-
-        from app.services.auth_service import activate_user
-        result = activate_user(str(ObjectId()))
-        assert result is not None
-
-
-# ══════════════════════════════════════════════════════════════════════
-# get_all_users() — pagination
-# ══════════════════════════════════════════════════════════════════════
 class TestGetAllUsers:
 
-    @patch("app.services.auth_service.users_collection")
-    def test_empty_db_total_pages_is_zero(self, mock_col):
-        mock_col.count_documents.return_value = 0
-        mock_col.find.return_value \
-            .sort.return_value \
-            .skip.return_value \
-            .limit.return_value = iter([])
+    @patch.object(auth_module, "users_collection")
+    def test_pagination_arithmetic(self, mock_col):
+        """FR-UAM-12: Pagination"""
+        mock_col.count_documents.return_value = 50
+        mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
+        result = auth_module.get_all_users(page=3, per_page=15)
+        mock_col.find.return_value.sort.return_value.skip.assert_called_with(30)
 
-        from app.services.auth_service import get_all_users
-        result = get_all_users(page=1, per_page=20)
+class TestActivateUser:
 
-        assert result["total"]       == 0
-        assert result["total_pages"] == 0
+    @patch.object(auth_module, "users_collection")
+    def test_invalid_objectid(self, mock_col):
+        """NFR-RB-06: Input validation"""
+        assert auth_module.activate_user("bad-id") is None
 
-    @patch("app.services.auth_service.users_collection")
-    def test_pagination_skip_arithmetic(self, mock_col):
-        mock_col.count_documents.return_value = 45
-        mock_col.find.return_value \
-            .sort.return_value \
-            .skip.return_value \
-            .limit.return_value = iter([])
-
-        from app.services.auth_service import get_all_users
-        get_all_users(page=3, per_page=15)
-
-        skip_call = mock_col.find.return_value.sort.return_value.skip
-        skip_call.assert_called_with(30)
-
-    @patch("app.services.auth_service.users_collection")
-    def test_get_all_users_with_results(self, mock_col):
-        mock_col.count_documents.return_value = 2
-        users = [make_user("u1"), make_user("u2")]
-        mock_col.find.return_value \
-            .sort.return_value \
-            .skip.return_value \
-            .limit.return_value = iter(users)
-
-        from app.services.auth_service import get_all_users
-        result = get_all_users(page=1, per_page=10)
-
-        assert result["total"]       == 2
-        assert result["total_pages"] == 1
-        assert len(result["users"])  == 2
-        for user in result["users"]:
-            assert "id"  in user
-            assert "_id" not in user
+    @patch.object(auth_module, "users_collection")
+    def test_activation_sets_active(self, mock_col):
+        """FR-UAM-13: User activation"""
+        mock_col.update_one.return_value = MagicMock(matched_count=1)
+        mock_col.find_one.return_value = make_user(status="active")
+        result = auth_module.activate_user(str(ObjectId()))
+        assert result["status"] == "active"

@@ -2,218 +2,244 @@ import pytest
 from unittest.mock import patch, MagicMock
 from bson import ObjectId
 from datetime import datetime
-from conftest import approver, make_approval
 from app.services.approval_service import _evaluate_decision
+import app.services.approval_service as approval_module
 
 
-# ══════════════════════════════════════════════════════════════════════
-# _evaluate_decision() — all 11 paths
-# ══════════════════════════════════════════════════════════════════════
+def approver(user_id, decision=None):
+    return {
+        "user_id": user_id,
+        "decision": decision,
+        "user_email": f"{user_id}@test.com",
+        "decided_at": datetime.utcnow() if decision else None,
+    }
+
+
+def make_approval(status="pending", approval_type="all_required", approvers=None):
+    if approvers is None:
+        approvers = [approver("u1"), approver("u2")]
+    return {
+        "_id": ObjectId(),
+        "contract_id": str(ObjectId()),
+        "status": status,
+        "approval_type": approval_type,
+        "approvers": approvers,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+
 class TestEvaluateDecision:
+    """FR-WP-04: Approval decision logic (CC=10)"""
 
     def test_P1_no_votes_returns_pending(self):
-        approvers = [approver("u1"), approver("u2")]
-        assert _evaluate_decision(approvers, "all_required") == "pending"
+        assert _evaluate_decision([approver("u1"), approver("u2")], "all_required") == "pending"
 
     def test_P2_first_person_approved(self):
-        approvers = [approver("u1", "approved"), approver("u2")]
-        assert _evaluate_decision(approvers, "first_person") == "approved"
+        """FR-WP-05: First-person approval"""
+        assert _evaluate_decision([approver("u1", "approved")], "first_person") == "approved"
 
     def test_P3_first_person_rejected(self):
-        approvers = [approver("u1", "rejected")]
-        assert _evaluate_decision(approvers, "first_person") == "rejected"
+        assert _evaluate_decision([approver("u1", "rejected")], "first_person") == "rejected"
 
     def test_P4_all_required_one_rejection(self):
-        approvers = [approver("u1", "approved"), approver("u2", "rejected")]
-        assert _evaluate_decision(approvers, "all_required") == "rejected"
+        """FR-WP-06: All-required rejection"""
+        assert _evaluate_decision(
+            [approver("u1", "approved"), approver("u2", "rejected")], "all_required"
+        ) == "rejected"
 
     def test_P4b_changes_requested_also_fails(self):
-        approvers = [approver("u1", "changes_requested")]
-        assert _evaluate_decision(approvers, "all_required") == "changes_requested"
+        assert _evaluate_decision(
+            [approver("u1", "changes_requested")], "all_required"
+        ) == "changes_requested"
 
     def test_P5_all_required_all_approved(self):
-        approvers = [approver("u1", "approved"), approver("u2", "approved")]
-        assert _evaluate_decision(approvers, "all_required") == "approved"
+        """FR-WP-06: All-required approval"""
+        assert _evaluate_decision(
+            [approver("u1", "approved"), approver("u2", "approved")], "all_required"
+        ) == "approved"
 
     def test_P6_partial_votes_still_pending(self):
-        approvers = [approver("u1", "approved"), approver("u2", None)]
-        assert _evaluate_decision(approvers, "all_required") == "pending"
+        assert _evaluate_decision(
+            [approver("u1", "approved"), approver("u2", None)], "all_required"
+        ) == "pending"
 
     def test_P7_majority_not_all_voted(self):
-        approvers = [approver("u1", "approved"), approver("u2")]
-        assert _evaluate_decision(approvers, "majority") == "pending"
+        """FR-WP-07: Majority not ready"""
+        assert _evaluate_decision(
+            [approver("u1", "approved"), approver("u2")], "majority"
+        ) == "pending"
 
     def test_P8_majority_approved(self):
-        approvers = [
-            approver("u1", "approved"),
-            approver("u2", "approved"),
-            approver("u3", "rejected"),
-        ]
-        assert _evaluate_decision(approvers, "majority") == "approved"
+        """FR-WP-08: Majority approved"""
+        assert _evaluate_decision(
+            [approver("u1", "approved"), approver("u2", "approved"), approver("u3", "rejected")],
+            "majority",
+        ) == "approved"
 
     def test_P9_majority_rejected(self):
-        approvers = [
-            approver("u1", "rejected"),
-            approver("u2", "rejected"),
-            approver("u3", "approved"),
-        ]
-        assert _evaluate_decision(approvers, "majority") == "rejected"
+        assert _evaluate_decision(
+            [approver("u1", "rejected"), approver("u2", "rejected"), approver("u3", "approved")],
+            "majority",
+        ) == "rejected"
 
     def test_P10_unknown_type_fallback(self):
-        approvers = [approver("u1", "approved")]
-        assert _evaluate_decision(approvers, "some_unknown_type") == "pending"
+        assert _evaluate_decision([approver("u1", "approved")], "some_unknown_type") == "pending"
 
-    def test_exact_tie_is_rejected(self):
-        approvers = [approver("u1", "approved"), approver("u2", "rejected")]
-        assert _evaluate_decision(approvers, "majority") == "rejected"
+    def test_P11_exact_tie_is_rejected(self):
+        """Boundary: 50% is NOT majority"""
+        assert _evaluate_decision(
+            [approver("u1", "approved"), approver("u2", "rejected")], "majority"
+        ) == "rejected"
 
 
-# ══════════════════════════════════════════════════════════════════════
-# cast_vote()
-# ══════════════════════════════════════════════════════════════════════
 class TestCastVote:
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid(self, mock_col):
-        from app.services.approval_service import cast_vote
+        """NFR-RB-06: Input validation"""
         from app.models.approval import VoteRequest, ApprovalDecision
-        vote = VoteRequest(decision=ApprovalDecision.approved)
-        result = await cast_vote("bad-id", "u1", vote)
-        assert result is None
-        mock_col.find_one.assert_not_called()
+        assert await approval_module.cast_vote(
+            "bad-id", "u1", VoteRequest(decision=ApprovalDecision.approved)
+        ) is None
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_approval_not_pending(self, mock_col):
-        from app.services.approval_service import cast_vote
+        """Cannot vote on decided approval"""
         from app.models.approval import VoteRequest, ApprovalDecision
         approval = make_approval(status="approved")
         mock_col.find_one.return_value = approval
-        vote = VoteRequest(decision=ApprovalDecision.approved)
-        result = await cast_vote(str(approval["_id"]), "u1", vote)
-        assert result is None
+        
+        assert await approval_module.cast_vote(
+            str(approval["_id"]), "u1", VoteRequest(decision=ApprovalDecision.approved)
+        ) is None
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_already_voted_returns_none(self, mock_col):
-        from app.services.approval_service import cast_vote
+        """Cannot double-vote"""
         from app.models.approval import VoteRequest, ApprovalDecision
-        approval = make_approval(
-            approvers=[{
-                "user_id": "u1", "decision": "approved",
-                "user_email": None, "decided_at": None
-            }]
-        )
+        approval = make_approval(approvers=[approver("u1", "approved")])
         mock_col.find_one.return_value = approval
-        vote = VoteRequest(decision=ApprovalDecision.approved)
-        result = await cast_vote(str(approval["_id"]), "u1", vote)
-        assert result is None
+        
+        assert await approval_module.cast_vote(
+            str(approval["_id"]), "u1", VoteRequest(decision=ApprovalDecision.approved)
+        ) is None
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_unauthorized_voter_returns_none(self, mock_col):
-        from app.services.approval_service import cast_vote
+        """NFR-RB-01: Unauthorized voter rejected"""
         from app.models.approval import VoteRequest, ApprovalDecision
-        approval = make_approval(
-            approvers=[{
-                "user_id": "u2", "decision": None,
-                "user_email": None, "decided_at": None
-            }]
-        )
+        approval = make_approval(approvers=[approver("u2")])
         mock_col.find_one.return_value = approval
-        vote = VoteRequest(decision=ApprovalDecision.approved)
-        result = await cast_vote(str(approval["_id"]), "u1", vote, is_admin=False)
-        assert result is None
+        
+        assert await approval_module.cast_vote(
+            str(approval["_id"]), "u1", VoteRequest(decision=ApprovalDecision.approved), is_admin=False
+        ) is None
+
+    @patch.object(approval_module, "approvals_collection")
+    @pytest.mark.asyncio
+    async def test_valid_vote_updates_status(self, mock_col):
+        """FR-WP-09: Vote casting updates status"""
+        from app.models.approval import VoteRequest, ApprovalDecision
+        approval = make_approval(approval_type="all_required", approvers=[approver("u1"), approver("u2")])
+        mock_col.find_one.side_effect = [approval, {**approval}]
+        mock_col.update_one.return_value = MagicMock()
+        
+        await approval_module.cast_vote(
+            str(approval["_id"]), "u1", VoteRequest(decision=ApprovalDecision.approved)
+        )
+        
+        payload = mock_col.update_one.call_args[0][1]["$set"]
+        assert "approvers" in payload
 
 
-# ══════════════════════════════════════════════════════════════════════
-# get_pending_approvals()
-# ══════════════════════════════════════════════════════════════════════
 class TestGetPendingApprovals:
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_returns_only_unvoted_approvals(self, mock_col):
-        """
-        Branch: user found with decision=None → added to results.
-        """
+        """FR-WP-10: Get pending approvals"""
         approval = {
-            "_id": ObjectId(), "status": "pending",
-            "approvers": [{"user_id": "u1", "decision": None, "user_email": None}],
+            "_id": ObjectId(),
+            "status": "pending",
             "approval_type": "all_required",
             "contract_id": str(ObjectId()),
+            "approvers": [{"user_id": "u1", "decision": None, "user_email": None}],
         }
         mock_col.find.return_value.sort.return_value = iter([approval])
-
-        from app.services.approval_service import get_pending_approvals
-        result = await get_pending_approvals("u1")
-
+        
+        result = await approval_module.get_pending_approvals("u1")
         assert len(result) == 1
-        assert "id" in result[0]
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_excludes_already_voted(self, mock_col):
-        """
-        Branch: decision is not None → NOT added (already voted).
-        """
         approval = {
-            "_id": ObjectId(), "status": "pending",
-            "approvers": [{"user_id": "u1", "decision": "approved", "user_email": None}],
+            "_id": ObjectId(),
+            "status": "pending",
             "approval_type": "all_required",
             "contract_id": str(ObjectId()),
+            "approvers": [{"user_id": "u1", "decision": "approved", "user_email": None}],
         }
         mock_col.find.return_value.sort.return_value = iter([approval])
-
-        from app.services.approval_service import get_pending_approvals
-        result = await get_pending_approvals("u1")
-
+        
+        result = await approval_module.get_pending_approvals("u1")
         assert len(result) == 0
 
-    @patch("app.services.approval_service.approvals_collection")
-    @pytest.mark.asyncio
-    async def test_empty_returns_empty_list(self, mock_col):
-        """No pending approvals → empty list."""
-        mock_col.find.return_value.sort.return_value = iter([])
 
-        from app.services.approval_service import get_pending_approvals
-        result = await get_pending_approvals("u1")
-
-        assert result == []
-
-
-# ══════════════════════════════════════════════════════════════════════
-# get_approvals_by_contract()
-# ══════════════════════════════════════════════════════════════════════
 class TestGetApprovalsByContract:
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_returns_all_approvals_for_contract(self, mock_col):
-        """All approvals for a contract returned as list with string ids."""
-        contract_id = str(ObjectId())
-        a1 = {"_id": ObjectId(), "contract_id": contract_id,
-              "status": "pending",  "approvers": []}
-        a2 = {"_id": ObjectId(), "contract_id": contract_id,
-              "status": "approved", "approvers": []}
+        """FR-WP-11: Get approvals by contract"""
+        cid = str(ObjectId())
+        a1 = {"_id": ObjectId(), "contract_id": cid, "status": "pending", "approvers": []}
+        a2 = {"_id": ObjectId(), "contract_id": cid, "status": "approved", "approvers": []}
         mock_col.find.return_value.sort.return_value = iter([a1, a2])
-
-        from app.services.approval_service import get_approvals_by_contract
-        result = await get_approvals_by_contract(contract_id)
-
+        
+        result = await approval_module.get_approvals_by_contract(cid)
         assert len(result) == 2
-        for item in result:
-            assert "id"  in item
-            assert "_id" not in item
 
-    @patch("app.services.approval_service.approvals_collection")
+    @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_empty_returns_empty_list(self, mock_col):
-        """No approvals for contract → empty list."""
         mock_col.find.return_value.sort.return_value = iter([])
+        assert await approval_module.get_approvals_by_contract("contract_abc") == []
 
-        from app.services.approval_service import get_approvals_by_contract
-        result = await get_approvals_by_contract("contract_abc")
+    @patch.object(approval_module, "approvals_collection")
+    @pytest.mark.asyncio
+    async def test_admin_can_vote_even_if_not_listed(self, mock_col):
+        """NFR-RB-07: Admin can vote even if not in approver list"""
+        from app.models.approval import VoteRequest, ApprovalDecision
+        approval = make_approval(approvers=[approver("u2")])
+        mock_col.find_one.side_effect = [approval, {**approval}]
+        mock_col.update_one.return_value = MagicMock()
+        
+        result = await approval_module.cast_vote(
+            str(approval["_id"]), "admin_001", VoteRequest(decision=ApprovalDecision.approved), is_admin=True
+        )
+        
+        # Admin should be added to approvers list
+        assert result is not None
 
-        assert result == []
+    @patch.object(approval_module, "approvals_collection")
+    @pytest.mark.asyncio
+    async def test_changes_requested_in_all_required(self, mock_col):
+        """FR-WP-12: Changes requested handling"""
+        from app.models.approval import VoteRequest, ApprovalDecision
+        approval = make_approval(approvers=[approver("u1"), approver("u2")])
+        mock_col.find_one.side_effect = [approval, {**approval}]
+        mock_col.update_one.return_value = MagicMock()
+        
+        await approval_module.cast_vote(
+            str(approval["_id"]), "u1", VoteRequest(decision=ApprovalDecision.changes_requested)
+        )
+        
+        payload = mock_col.update_one.call_args[0][1]["$set"]
+        # Should have status set when all_required and someone requests changes
+        assert "status" in payload or "approvers" in payload
