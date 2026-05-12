@@ -247,7 +247,22 @@
       "PowerShell(cd \"C:\\\\Users\\\\MSI\\\\Desktop\\\\UNI_CLM\\\\clause-backend\" && git diff c6491bb~1 c6491bb -- app/routes/contracts.py 2>&1 | Select-Object -First 100)",
       "PowerShell(cd \"C:\\\\Users\\\\MSI\\\\Desktop\\\\UNI_CLM\\\\clause-backend\" && git diff c6491bb~1 c6491bb -- app/routes/dashboard.py 2>&1 | Select-Object -First 150)",
       "PowerShell(cd \"C:\\\\Users\\\\MSI\\\\Desktop\\\\UNI_CLM\\\\clause-backend\" && git diff c6491bb~1 c6491bb -- app/routes/contracts.py 2>&1 | grep -A5 -B5 \"get_current_user\\\\|list_contracts\\\\|is_admin\" | Select-Object -First 80)",
-      "PowerShell(wsl -d Ubuntu -e bash -c 'docker exec clm_backend ls /app/uploads/ 2>&1 | head -20')"
+      "PowerShell(wsl -d Ubuntu -e bash -c 'docker exec clm_backend ls /app/uploads/ 2>&1 | head -20')",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"grep -A4 'MongoDB client' /home/thevindu/cluasue/Backend/app/config.py\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"cd /home/thevindu/cluasue && docker compose build backend 2>&1 | tail -20\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"ls /home/thevindu/cluasue/\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"docker ps --format 'table {{.Names}}\\\\t{{.Status}}' | grep -i backend\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"docker inspect clm_backend --format '{{.HostConfig.Binds}}'\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"docker inspect clm_backend --format '{{.Config.Image}}'\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"find / -name 'docker-compose.yml' -o -name 'docker-compose.yaml' 2>/dev/null | grep -v proc | grep -v sys\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"ls /home/thevindu/clm_project/ 2>/dev/null || ls /home/thevindu/ 2>/dev/null\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"cd /home/thevindu/clm_project && docker compose build backend 2>&1 | tail -20\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"cd /home/thevindu/clm_project && docker compose up -d backend 2>&1\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"sleep 10 && docker ps --format 'table {{.Names}}\\\\t{{.Status}}' | grep clm_backend\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"curl -s http://localhost:8000/health\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"docker port clm_backend\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"docker inspect clm_backend --format '{{json .NetworkSettings.Ports}}'\")",
+      "PowerShell(wsl -d Ubuntu -e bash -c \"docker exec clm_backend curl -s http://localhost:8000/health 2>&1 | head -20\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\MSI\\Desktop\\UNI_CLM",

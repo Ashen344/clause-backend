@@ -35,8 +35,12 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 AI_PLATFORM_URL = os.getenv("AI_PLATFORM_URL", "http://localhost:8001")
 
 # Create the MongoDB client connection
-import certifi
-client = MongoClient(MONGODB_URI, tlsCAFile=certifi.where())
+# Use TLS/certifi only for Atlas (mongodb+srv://) or explicitly TLS-flagged URIs
+if MONGODB_URI.startswith("mongodb+srv://") or "ssl=true" in MONGODB_URI.lower():
+    import certifi
+    client = MongoClient(MONGODB_URI, tlsCAFile=certifi.where())
+else:
+    client = MongoClient(MONGODB_URI)
 
 # Get a reference to your specific database
 db = client[DATABASE_NAME]
