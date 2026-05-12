@@ -37,11 +37,13 @@ def decode_clerk_token(token: str) -> Optional[dict]:
     try:
         # Try to decode without verification first (for development)
         unverified = jwt.get_unverified_claims(token)
+        pub_meta = unverified.get("public_metadata") or {}
         return {
             "user_id": unverified.get("sub"),
             "email": unverified.get("email", ""),
             "first_name": unverified.get("first_name", ""),
             "last_name": unverified.get("last_name", ""),
+            "role": pub_meta.get("role", ""),
         }
     except JWTError:
         return None
