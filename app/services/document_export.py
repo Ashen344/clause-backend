@@ -25,36 +25,86 @@ from typing import Optional
 # ── DOCX export via python-docx ───────────────────────────────────────────────
 
 def html_to_docx(html: str, title: str = "Contract") -> bytes:
-    """Convert TipTap HTML → DOCX bytes using python-docx."""
+    """Convert HTML → a professionally styled DOCX document."""
     from docx import Document
-    from docx.shared import Pt, RGBColor
+    from docx.shared import Pt, RGBColor, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
     doc = Document()
 
-    # ── Document styles ───────────────────────────────────────────────────
+    # ── Page margins (1 inch all around) ─────────────────────────────────
+    for section in doc.sections:
+        section.top_margin = Cm(2.54)
+        section.bottom_margin = Cm(2.54)
+        section.left_margin = Cm(2.54)
+        section.right_margin = Cm(2.54)
+
+    # ── Base font ─────────────────────────────────────────────────────────
     normal = doc.styles["Normal"]
     normal.font.name = "Calibri"
     normal.font.size = Pt(11)
+    normal.paragraph_format.space_after = Pt(6)
 
-    # Title paragraph at the top
+    # ── Heading styles ────────────────────────────────────────────────────
+    for style_name, size, hex_color, sp_before, sp_after in [
+        ("Heading 1", 15, "1E2D4A", 20, 8),
+        ("Heading 2", 13, "1E3A5F", 14, 6),
+        ("Heading 3", 11, "2D4A6A", 10, 4),
+    ]:
+        try:
+            st = doc.styles[style_name]
+            st.font.name = "Calibri"
+            st.font.size = Pt(size)
+            st.font.bold = True
+            st.font.color.rgb = RGBColor(
+                int(hex_color[0:2], 16),
+                int(hex_color[2:4], 16),
+                int(hex_color[4:6], 16),
+            )
+            st.paragraph_format.space_before = Pt(sp_before)
+            st.paragraph_format.space_after = Pt(sp_after)
+            st.paragraph_format.keep_with_next = True
+        except Exception:
+            pass
+
+    # ── Title block ───────────────────────────────────────────────────────
     tp = doc.add_paragraph()
     tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = tp.add_run(title)
+    tp.paragraph_format.space_before = Pt(0)
+    tp.paragraph_format.space_after = Pt(8)
+    run = tp.add_run(title.upper())
     run.bold = True
-    run.font.size = Pt(16)
-    run.font.color.rgb = RGBColor(0x1E, 0x29, 0x3B)   # slate-800
-    doc.add_paragraph()   # spacer
+    run.font.name = "Calibri"
+    run.font.size = Pt(18)
+    run.font.color.rgb = RGBColor(0x1E, 0x29, 0x3B)
 
-    # ── Parse HTML blocks ─────────────────────────────────────────────────
+    # Thin bottom border under title
+    pPr = tp._p.get_or_add_pPr()
+    pBdr = OxmlElement('w:pBdr')
+    bot = OxmlElement('w:bottom')
+    bot.set(qn('w:val'), 'single')
+    bot.set(qn('w:sz'), '6')
+    bot.set(qn('w:space'), '2')
+    bot.set(qn('w:color'), '1E293B')
+    pBdr.append(bot)
+    pPr.append(pBdr)
+
+    # Spacer after title
+    sp = doc.add_paragraph()
+    sp.paragraph_format.space_before = Pt(0)
+    sp.paragraph_format.space_after = Pt(6)
+
+    # ── Content blocks ────────────────────────────────────────────────────
     blocks = _parse_html_blocks(html)
 
     for block in blocks:
         btype  = block["type"]
-        runs   = block["runs"]          # list of {text, bold, italic, underline}
+        runs   = block["runs"]
         indent = block.get("indent", 0)
 
-        if btype.startswith("h"):
+        if btype.startswith("h") and btype != "hr":
             level = int(btype[1])
             heading_style = f"Heading {min(level, 3)}"
             try:
@@ -65,20 +115,85 @@ def html_to_docx(html: str, title: str = "Contract") -> bytes:
 
         elif btype == "li_bullet":
             p = doc.add_paragraph(style="List Bullet")
-            p.paragraph_format.left_indent = Pt(18 * max(indent, 1))
+            if indent:
+                p.paragraph_format.left_indent = Pt(18 * indent)
             _add_runs(p, runs)
 
         elif btype == "li_ordered":
             p = doc.add_paragraph(style="List Number")
-            p.paragraph_format.left_indent = Pt(18 * max(indent, 1))
+            if indent:
+                p.paragraph_format.left_indent = Pt(18 * indent)
             _add_runs(p, runs)
+
+        elif btype == "hr":
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(6)
+            p.paragraph_format.space_after = Pt(6)
+            pPr2 = p._p.get_or_add_pPr()
+            pBdr2 = OxmlElement('w:pBdr')
+            bot2 = OxmlElement('w:bottom')
+            bot2.set(qn('w:val'), 'single')
+            bot2.set(qn('w:sz'), '4')
+            bot2.set(qn('w:space'), '1')
+            bot2.set(qn('w:color'), 'CBD5E1')
+            pBdr2.append(bot2)
+            pPr2.append(pBdr2)
 
         elif btype == "br":
-            doc.add_paragraph()
+            sp2 = doc.add_paragraph()
+            sp2.paragraph_format.space_before = Pt(0)
+            sp2.paragraph_format.space_after = Pt(4)
 
-        else:  # "p" or anything else
+        else:  # "p"
             p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(6)
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             _add_runs(p, runs)
+
+    # ── Footer: "Title · Page X of Y" ────────────────────────────────────
+    section = doc.sections[0]
+    footer = section.footer
+    fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    fp.clear()
+    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    FOOTER_GRAY = RGBColor(0x94, 0xA3, 0xB8)
+
+    def _footer_run(text: str = ""):
+        r = fp.add_run(text)
+        r.font.name = "Calibri"
+        r.font.size = Pt(9)
+        r.font.color.rgb = FOOTER_GRAY
+        return r
+
+    _footer_run(f"{title}  ·  Page ")
+
+    r_page = _footer_run()
+    for fld_type, instr in [('begin', None), (None, ' PAGE '), ('end', None),
+                             (None, None)]:
+        if fld_type:
+            fc = OxmlElement('w:fldChar')
+            fc.set(qn('w:fldCharType'), fld_type)
+            r_page._r.append(fc)
+        elif instr:
+            it = OxmlElement('w:instrText')
+            it.set(qn('xml:space'), 'preserve')
+            it.text = instr
+            r_page._r.append(it)
+
+    _footer_run(" of ")
+
+    r_total = _footer_run()
+    for fld_type, instr in [('begin', None), (None, ' NUMPAGES '), ('end', None)]:
+        if fld_type:
+            fc = OxmlElement('w:fldChar')
+            fc.set(qn('w:fldCharType'), fld_type)
+            r_total._r.append(fc)
+        elif instr:
+            it = OxmlElement('w:instrText')
+            it.set(qn('xml:space'), 'preserve')
+            it.text = instr
+            r_total._r.append(it)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -218,7 +333,7 @@ class _BlockParser(HTMLParser):
         runs: [{text, bold, italic, underline}] }
     """
 
-    BLOCK_TAGS  = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "br", "div"}
+    BLOCK_TAGS  = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "br", "div", "hr"}
     INLINE_BOLD = {"strong", "b"}
     INLINE_ITAL = {"em", "i"}
     INLINE_UND  = {"u"}
@@ -270,6 +385,9 @@ class _BlockParser(HTMLParser):
         elif tag == "br":
             self._flush()
             self.blocks.append({"type": "br", "runs": []})
+        elif tag == "hr":
+            self._flush()
+            self.blocks.append({"type": "hr", "runs": []})
         elif tag == "ol":
             self._in_ol += 1
         elif tag == "ul":

@@ -236,42 +236,64 @@ async def list_users(
     # 1. Fetch all users from Clerk (source of truth for name/email/avatar)
     clerk_users = await _fetch_all_clerk_users(limit=500)
 
-    # 2. Build a map of clerk_id → MongoDB record for roles/status
+    # 2. Build a map of clerk_id → MongoDB record for roles/status/profile
     from app.config import users_collection
+    from datetime import datetime, timezone
     db_records = {
         u["clerk_id"]: u
-        for u in users_collection.find({}, {"_id": 1, "clerk_id": 1, "role": 1, "status": 1, "created_at": 1})
+        for u in users_collection.find({}, {"_id": 1, "clerk_id": 1, "role": 1, "status": 1, "created_at": 1, "full_name": 1, "email": 1, "image_url": 1})
         if u.get("clerk_id")
     }
 
-    # 3. Merge: one row per Clerk user
     merged = []
-    from datetime import datetime, timezone
-    for cu in clerk_users:
-        clerk_id = cu.get("id", "")
-        profile  = _extract_clerk_profile(cu)
-        db       = db_records.get(clerk_id, {})
 
-        # Clerk timestamps are epoch milliseconds
-        raw_ts = cu.get("created_at")
-        if raw_ts:
-            try:
-                created_at = datetime.fromtimestamp(raw_ts / 1000, tz=timezone.utc).isoformat()
-            except Exception:
+    if clerk_users:
+        # 3a. Merge: one row per Clerk user (Clerk is source of truth for profile)
+        for cu in clerk_users:
+            clerk_id = cu.get("id", "")
+            profile  = _extract_clerk_profile(cu)
+            db       = db_records.get(clerk_id, {})
+
+            raw_ts = cu.get("created_at")
+            if raw_ts:
+                try:
+                    created_at = datetime.fromtimestamp(raw_ts / 1000, tz=timezone.utc).isoformat()
+                except Exception:
+                    created_at = None
+            else:
                 created_at = None
-        else:
-            created_at = None
 
-        merged.append({
-            "id":        str(db["_id"]) if db.get("_id") else clerk_id,  # MongoDB _id if synced
-            "clerk_id":  clerk_id,
-            "full_name": profile["full_name"],
-            "email":     profile["email"],
-            "image_url": profile["image_url"],
-            "role":      db.get("role", "user"),
-            "status":    db.get("status", "active"),
-            "created_at": created_at,
-        })
+            merged.append({
+                "id":        str(db["_id"]) if db.get("_id") else clerk_id,
+                "clerk_id":  clerk_id,
+                "full_name": profile["full_name"],
+                "email":     profile["email"],
+                "image_url": profile["image_url"],
+                "role":      db.get("role", "user"),
+                "status":    db.get("status", "active"),
+                "created_at": created_at,
+            })
+    else:
+        # 3b. Clerk unavailable — fall back to MongoDB records (users who have logged in)
+        for clerk_id, db in db_records.items():
+            raw_ts = db.get("created_at")
+            if isinstance(raw_ts, datetime):
+                created_at = raw_ts.isoformat()
+            elif raw_ts:
+                created_at = str(raw_ts)
+            else:
+                created_at = None
+
+            merged.append({
+                "id":        str(db["_id"]),
+                "clerk_id":  clerk_id,
+                "full_name": db.get("full_name", ""),
+                "email":     db.get("email", ""),
+                "image_url": db.get("image_url", ""),
+                "role":      db.get("role", "user"),
+                "status":    db.get("status", "active"),
+                "created_at": created_at,
+            })
 
     # 4. Paginate
     total = len(merged)

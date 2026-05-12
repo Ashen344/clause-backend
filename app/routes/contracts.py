@@ -213,97 +213,143 @@ async def _ai_generate_document(
     key_terms: dict,
     user_id: str,
 ):
-    """Call the AI agent to generate a contract draft, convert to DOCX, attach to contract."""
-    import os, re as _re, io
+    """Generate a contract document in two phases:
+    Phase 1 (fast): build a template DOCX immediately so the user isn't kept waiting.
+    Phase 2 (async): attempt AI enhancement; if successful, push an updated version.
+    Risk analysis runs after Phase 2 regardless of which content was used.
+    """
+    import asyncio
+    import os
+    import re as _re
     from bson import ObjectId as _OID
     from app.config import UPLOAD_DIR
-    from app.services.ai_service import generate_contract_draft
+    from app.services.ai_service import generate_contract_draft, _mock_draft
     from app.services.document_export import html_to_docx
 
-    try:
-        draft = await generate_contract_draft(
-            contract_type=contract_type,
-            parties=parties,
-            key_terms=key_terms,
-        )
-        content: str = draft.get("content", "")
-        if not content:
-            raise ValueError("AI returned empty content")
+    safe_title = _re.sub(r'[^\w\s-]', '', contract_title).strip().replace(" ", "_") or "contract"
 
-        # Convert plain text/markdown to simple HTML for html_to_docx
-        html_parts = []
+    def _md_to_html(content: str) -> str:
+        def _inline(text: str) -> str:
+            text = _re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', text)
+            text = _re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+            text = _re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+            text = _re.sub(r'_(.+?)_', r'<em>\1</em>', text)
+            return text
+        parts = []
         for line in content.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("### "):
-                html_parts.append(f"<h3>{stripped[4:]}</h3>")
-            elif stripped.startswith("## "):
-                html_parts.append(f"<h2>{stripped[3:]}</h2>")
-            elif stripped.startswith("# "):
-                html_parts.append(f"<h1>{stripped[2:]}</h1>")
-            elif stripped.startswith("- "):
-                html_parts.append(f"<ul><li>{stripped[2:]}</li></ul>")
-            elif stripped == "---":
-                html_parts.append("<p>────────────────────────────────────────</p>")
-            elif stripped == "":
-                html_parts.append("<br>")
+            s = line.strip()
+            if s.startswith("### "):
+                parts.append(f"<h3>{_inline(s[4:])}</h3>")
+            elif s.startswith("## "):
+                parts.append(f"<h2>{_inline(s[3:])}</h2>")
+            elif s.startswith("# "):
+                parts.append(f"<h1>{_inline(s[2:])}</h1>")
+            elif s.startswith("- ") or s.startswith("* "):
+                parts.append(f"<ul><li>{_inline(s[2:])}</li></ul>")
+            elif _re.match(r'^\d+\.\s+', s):
+                item = _re.sub(r'^\d+\.\s+', '', s)
+                parts.append(f"<ol><li>{_inline(item)}</li></ol>")
+            elif s in ("---", "***", "___"):
+                parts.append("<hr>")
+            elif s == "":
+                parts.append("<br>")
             else:
-                # Convert **bold** to <strong>
-                formatted = _re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', stripped)
-                html_parts.append(f"<p>{formatted}</p>")
-        html = "\n".join(html_parts)
+                parts.append(f"<p>{_inline(s)}</p>")
+        return "\n".join(parts)
 
+    def _write_docx(content: str) -> tuple[str, int, bytes]:
+        """Convert markdown content → DOCX, save to disk. Returns (stored_filename, size, bytes)."""
+        html = _md_to_html(content)
         file_bytes = html_to_docx(html, title=contract_title)
-
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        file_id = uuid.uuid4().hex
-        stored_filename = f"{file_id}.docx"
-        with open(os.path.join(UPLOAD_DIR, stored_filename), "wb") as f:
+        fid = uuid.uuid4().hex
+        fname = f"{fid}.docx"
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as f:
             f.write(file_bytes)
+        return fname, len(file_bytes), file_bytes
 
-        safe_title = _re.sub(r'[^\w\s-]', '', contract_title).strip().replace(" ", "_") or "contract"
-        version_entry = {
+    # ── Phase 1: template DOCX — instant, marks document as ready ────────────
+    try:
+        template = _mock_draft(contract_type, parties)
+        fname1, size1, bytes1 = _write_docx(template["content"])
+        extracted_text = _extract_text_from_docx(bytes1)
+
+        v1 = {
             "version_number": 1,
-            "file_url": stored_filename,
+            "file_url": fname1,
             "original_filename": f"{safe_title}.docx",
-            "file_size": len(file_bytes),
+            "file_size": size1,
             "file_type": ".docx",
             "uploaded_by": user_id,
             "uploaded_at": datetime.utcnow(),
-            "change_notes": "AI-generated from template",
+            "change_notes": "Template draft",
         }
-
-        # Extract text from the generated DOCX so analysis has real content
-        extracted_text = _extract_text_from_docx(file_bytes)
-
-        set_fields = {
-            "file_url": stored_filename,
+        set1 = {
+            "file_url": fname1,
             "current_version": 1,
             "document_status": "ready",
             "updated_at": datetime.utcnow(),
         }
         if extracted_text:
-            set_fields["extracted_text"] = extracted_text
-
+            set1["extracted_text"] = extracted_text
         contracts_collection.update_one(
             {"_id": _OID(contract_id)},
-            {
-                "$push": {"versions": version_entry},
-                "$set": set_fields,
-            },
+            {"$push": {"versions": v1}, "$set": set1},
         )
-        print(f"[contracts] AI document generated for {contract_id}")
-
-        # Run risk analysis on the generated document content
-        if extracted_text:
-            from app.services.ai_service import analyze_contract_by_id
-            await analyze_contract_by_id(contract_id)
+        print(f"[contracts] Template document ready for {contract_id}")
 
     except Exception as exc:
-        print(f"[contracts] AI document generation failed for {contract_id}: {exc}")
+        print(f"[contracts] Template generation failed for {contract_id}: {exc}")
         contracts_collection.update_one(
             {"_id": _OID(contract_id)},
             {"$set": {"document_status": "failed", "updated_at": datetime.utcnow()}},
         )
+        return
+
+    # ── Phase 2: AI enhancement — runs after user already has a document ─────
+    try:
+        ai_draft = await asyncio.wait_for(
+            generate_contract_draft(contract_type=contract_type, parties=parties, key_terms=key_terms),
+            timeout=45.0,
+        )
+        ai_content: str = ai_draft.get("content", "")
+        # Only replace template if AI produced meaningfully more content
+        if ai_content and len(ai_content) > 500:
+            fname2, size2, bytes2 = _write_docx(ai_content)
+            ai_text = _extract_text_from_docx(bytes2)
+            v2 = {
+                "version_number": 2,
+                "file_url": fname2,
+                "original_filename": f"{safe_title}.docx",
+                "file_size": size2,
+                "file_type": ".docx",
+                "uploaded_by": user_id,
+                "uploaded_at": datetime.utcnow(),
+                "change_notes": "AI-generated draft",
+            }
+            set2 = {
+                "file_url": fname2,
+                "current_version": 2,
+                "updated_at": datetime.utcnow(),
+            }
+            if ai_text:
+                set2["extracted_text"] = ai_text
+                extracted_text = ai_text
+            contracts_collection.update_one(
+                {"_id": _OID(contract_id)},
+                {"$push": {"versions": v2}, "$set": set2},
+            )
+            print(f"[contracts] AI-enhanced document saved for {contract_id}")
+    except (asyncio.TimeoutError, Exception) as exc:
+        print(f"[contracts] AI enhancement skipped for {contract_id}: {exc}")
+
+    # ── Risk analysis — runs regardless of which version was used ─────────────
+    if extracted_text:
+        try:
+            from app.services.ai_service import analyze_contract_by_id
+            await analyze_contract_by_id(contract_id)
+        except Exception as exc:
+            print(f"[contracts] Risk analysis failed for {contract_id}: {exc}")
 
 
 @router.get("/")
