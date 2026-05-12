@@ -1,7 +1,9 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import all route modules
+# Import all route module
 from app.routes.contracts import router as contracts_router
 from app.routes.auth import router as auth_router
 from app.routes.ai import router as ai_router
@@ -24,14 +26,18 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS middleware - allows the React frontend to communicate with the backend
+_cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5174",
+]
+_frontend_url = os.getenv("FRONTEND_URL", "")
+if _frontend_url:
+    _cors_origins.append(_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:5174",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
