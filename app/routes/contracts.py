@@ -22,6 +22,11 @@ from app.services.contract_service import (
     get_contracts,
     update_contract,
     delete_contract,
+    permanent_delete_contract,
+    restore_contract,
+    archive_contract,
+    unarchive_contract,
+    purge_expired_trash,
     update_workflow_stage,
     get_dashboard_stats,
 )
@@ -361,6 +366,7 @@ async def list_contracts(
     risk_level: Optional[RiskLevel] = Query(None),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=500, description="Items per page"),
+    view: str = Query("active", description="active | archived | trash"),
     current_user: dict = Depends(get_current_user_with_role),
 ):
     is_admin = current_user.get("role") in ("admin", "manager")
@@ -373,7 +379,7 @@ async def list_contracts(
         page=page,
         per_page=per_page,
     )
-    return await get_contracts(filters, user_id=current_user["user_id"], is_admin=is_admin)
+    return await get_contracts(filters, user_id=current_user["user_id"], is_admin=is_admin, view=view)
 
 
 # Must be above /{contract_id} or FastAPI matches "dashboard" as an ID
@@ -616,6 +622,7 @@ async def delete_existing_contract(
     contract_id: str,
     current_user: dict = Depends(get_current_user_with_role),
 ):
+    """Soft-delete: moves contract to trash for 30 days before permanent removal."""
     is_admin = current_user.get("role") in ("admin", "manager")
     existing = await get_contract(contract_id, user_id=current_user["user_id"], is_admin=is_admin)
     if not existing:
@@ -628,9 +635,112 @@ async def delete_existing_contract(
         resource_id=contract_id,
         user_id=current_user["user_id"],
         user_email=current_user.get("email"),
-        details=f"Contract deleted: {existing.get('title', contract_id)}",
+        details=f"Contract moved to trash: {existing.get('title', contract_id)}",
     )
-    return {"message": "Contract deleted successfully"}
+    return {"message": "Contract moved to trash"}
+
+
+@router.delete("/{contract_id}/permanent")
+async def permanent_delete_existing_contract(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Permanently delete a contract from trash (irreversible)."""
+    is_admin = current_user.get("role") in ("admin", "manager")
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    deleted = await permanent_delete_contract(contract_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    create_audit_log(
+        action=AuditAction.delete,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract permanently deleted: {contract_id}",
+    )
+    return {"message": "Contract permanently deleted"}
+
+
+@router.patch("/{contract_id}/restore")
+async def restore_contract_from_trash(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Restore a contract from trash back to active."""
+    contract = await restore_contract(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found in trash")
+
+    create_audit_log(
+        action=AuditAction.update,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract restored from trash: {contract.get('title', contract_id)}",
+    )
+    return contract
+
+
+@router.patch("/{contract_id}/archive")
+async def archive_existing_contract(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Archive a contract (hides it from the main list without deleting)."""
+    is_admin = current_user.get("role") in ("admin", "manager")
+    existing = await get_contract(contract_id, user_id=current_user["user_id"], is_admin=is_admin)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    contract = await archive_contract(contract_id)
+    create_audit_log(
+        action=AuditAction.update,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract archived: {existing.get('title', contract_id)}",
+    )
+    return contract
+
+
+@router.patch("/{contract_id}/unarchive")
+async def unarchive_existing_contract(
+    contract_id: str,
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Move an archived contract back to the active list."""
+    contract = await unarchive_contract(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    create_audit_log(
+        action=AuditAction.update,
+        resource_type="contract",
+        resource_id=contract_id,
+        user_id=current_user["user_id"],
+        user_email=current_user.get("email"),
+        details=f"Contract unarchived: {contract.get('title', contract_id)}",
+    )
+    return contract
+
+
+@router.post("/purge-trash")
+async def purge_old_trash(
+    current_user: dict = Depends(get_current_user_with_role),
+):
+    """Permanently delete all contracts that have been in trash for more than 30 days."""
+    is_admin = current_user.get("role") in ("admin", "manager")
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    count = await purge_expired_trash()
+    return {"message": f"Purged {count} expired contracts from trash"}
 
 
 @router.patch("/{contract_id}/workflow")

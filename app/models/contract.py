@@ -137,6 +137,12 @@ class ContractInDB(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+    # Archive / soft-delete
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+
 
 # Schema for API responses
 class ContractResponse(BaseModel):

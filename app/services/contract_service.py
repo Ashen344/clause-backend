@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from app.config import contracts_collection, users_collection, workflows_collection
 from app.models.contract import (
@@ -109,9 +109,20 @@ async def get_contract(contract_id: str, user_id: str = None, is_admin: bool = F
 
 
 # GET all contracts with filtering, searching, and pagination
-async def get_contracts(filters: ContractFilter, user_id: str = None, is_admin: bool = False) -> dict:
+async def get_contracts(filters: ContractFilter, user_id: str = None, is_admin: bool = False, view: str = "active") -> dict:
     # Build the MongoDB query dynamically based on what filters were provided
     query = {}
+
+    # Scope by view
+    if view == "archived":
+        query["is_archived"] = True
+        query["is_deleted"] = {"$ne": True}
+    elif view == "trash":
+        query["is_deleted"] = True
+    else:
+        # Default active view: exclude archived and deleted
+        query["is_archived"] = {"$ne": True}
+        query["is_deleted"] = {"$ne": True}
 
     # Non-admins only see contracts they created
     if not is_admin and user_id:
@@ -196,15 +207,70 @@ async def update_contract(contract_id: str, update_data: ContractUpdate) -> Opti
     return await get_contract(contract_id)
 
 
-# DELETE a contract
+# SOFT-DELETE a contract (moves to trash, permanent delete after 30 days)
 async def delete_contract(contract_id: str) -> bool:
     if not ObjectId.is_valid(contract_id):
         return False
 
-    result = contracts_collection.delete_one({"_id": ObjectId(contract_id)})
+    result = contracts_collection.update_one(
+        {"_id": ObjectId(contract_id), "is_deleted": {"$ne": True}},
+        {"$set": {"is_deleted": True, "deleted_at": datetime.utcnow(), "is_archived": False, "updated_at": datetime.utcnow()}},
+    )
+    return result.modified_count > 0
 
-    # deleted_count is 1 if a document was found and deleted, 0 if not found
+
+# PERMANENTLY delete a contract (irreversible)
+async def permanent_delete_contract(contract_id: str) -> bool:
+    if not ObjectId.is_valid(contract_id):
+        return False
+
+    result = contracts_collection.delete_one({"_id": ObjectId(contract_id)})
     return result.deleted_count > 0
+
+
+# RESTORE a contract from trash
+async def restore_contract(contract_id: str) -> Optional[dict]:
+    if not ObjectId.is_valid(contract_id):
+        return None
+
+    contracts_collection.update_one(
+        {"_id": ObjectId(contract_id), "is_deleted": True},
+        {"$set": {"is_deleted": False, "deleted_at": None, "updated_at": datetime.utcnow()}},
+    )
+    return await get_contract(contract_id)
+
+
+# ARCHIVE a contract
+async def archive_contract(contract_id: str) -> Optional[dict]:
+    if not ObjectId.is_valid(contract_id):
+        return None
+
+    contracts_collection.update_one(
+        {"_id": ObjectId(contract_id), "is_deleted": {"$ne": True}},
+        {"$set": {"is_archived": True, "archived_at": datetime.utcnow(), "updated_at": datetime.utcnow()}},
+    )
+    return await get_contract(contract_id)
+
+
+# UNARCHIVE a contract
+async def unarchive_contract(contract_id: str) -> Optional[dict]:
+    if not ObjectId.is_valid(contract_id):
+        return None
+
+    contracts_collection.update_one(
+        {"_id": ObjectId(contract_id)},
+        {"$set": {"is_archived": False, "archived_at": None, "updated_at": datetime.utcnow()}},
+    )
+    return await get_contract(contract_id)
+
+
+# PURGE contracts that have been in trash for more than 30 days
+async def purge_expired_trash() -> int:
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    result = contracts_collection.delete_many(
+        {"is_deleted": True, "deleted_at": {"$lte": cutoff}}
+    )
+    return result.deleted_count
 
 
 # UPDATE workflow stage of a contract
