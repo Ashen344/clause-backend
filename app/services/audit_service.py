@@ -1,7 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
-from app.config import audit_logs_collection
+from app.config import audit_logs_collection, users_collection
 from app.models.audit_log import AuditAction
+
+# Cache clerk_id → display name so we don't hit MongoDB on every row
+_user_cache: dict = {}
 
 
 def create_audit_log(
@@ -64,6 +67,25 @@ def get_audit_logs(
     for log in logs_cursor:
         log["id"] = str(log["_id"])
         del log["_id"]
+
+        # Ensure created_at is a UTC ISO string with Z so browsers parse it correctly
+        ts = log.get("created_at")
+        if isinstance(ts, datetime):
+            log["created_at"] = ts.replace(tzinfo=timezone.utc).isoformat()
+
+        # Resolve user display name when user_email is missing
+        if not log.get("user_email") and log.get("user_id"):
+            clerk_id = log["user_id"]
+            if clerk_id not in _user_cache:
+                db_user = users_collection.find_one(
+                    {"clerk_id": clerk_id}, {"full_name": 1, "email": 1}
+                )
+                _user_cache[clerk_id] = (
+                    db_user.get("full_name") or db_user.get("email") or clerk_id
+                    if db_user else clerk_id
+                )
+            log["user_email"] = _user_cache[clerk_id]
+
         logs.append(log)
 
     return {

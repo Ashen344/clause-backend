@@ -295,7 +295,8 @@
       "PowerShell(wsl -d Ubuntu -e /bin/bash -c \"cd /home/thevindu/clm_project && docker compose build nginx 2>&1 | tail -5 && docker compose up -d nginx 2>&1 | tail -5\")",
       "PowerShell(wsl -d Ubuntu -e /bin/bash -c \"cd /home/thevindu/clm_project && docker compose build nginx 2>&1 | tail -4 && docker compose up -d nginx 2>&1 | tail -4\")",
       "PowerShell(wsl -d Ubuntu -e /bin/bash -c \"cp /mnt/c/Users/MSI/Desktop/UNI_CLM/Clause-Frontend/src/pages/contracts-page.tsx /home/thevindu/cluasue/Front/src/pages/contracts-page.tsx && echo 'Synced OK'\")",
-      "PowerShell(wsl -d Ubuntu -e /bin/bash -c \"export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && cd /home/thevindu/cluasue/Front && npm run build 2>&1 | tail -6 && cd /home/thevindu/clm_project && docker compose build nginx 2>&1 | tail -3 && docker compose up -d nginx 2>&1 | tail -3\")"
+      "PowerShell(wsl -d Ubuntu -e /bin/bash -c \"export PATH=/home/thevindu/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && cd /home/thevindu/cluasue/Front && npm run build 2>&1 | tail -6 && cd /home/thevindu/clm_project && docker compose build nginx 2>&1 | tail -3 && docker compose up -d nginx 2>&1 | tail -3\")",
+      "PowerShell(wsl -d Ubuntu -e /bin/bash -c \"cd /home/thevindu/clm_project && docker compose build backend 2>&1 | tail -5 && docker compose up -d backend 2>&1 | tail -4\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\MSI\\Desktop\\UNI_CLM",
