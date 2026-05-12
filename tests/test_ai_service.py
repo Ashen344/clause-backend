@@ -37,7 +37,7 @@ class TestAnalyzeContractText:
 
     @pytest.mark.asyncio
     async def test_no_api_key_returns_mock_analysis(self):
-        """FR-ACA-01: Mock analysis when no API key"""
+        """TC-AI-01: Mock analysis when no API key"""
         with patch.object(ai_module, "GEMINI_API_KEY", ""):
             result = await ai_module.analyze_contract_text("some text")
         assert "summary" in result
@@ -45,13 +45,14 @@ class TestAnalyzeContractText:
 
     @pytest.mark.asyncio
     async def test_placeholder_key_returns_mock_analysis(self):
+        """TC-AI-02: Mock analysis when placeholder API key is used"""
         with patch.object(ai_module, "GEMINI_API_KEY", "your_gemini_api_key_here"):
             result = await ai_module.analyze_contract_text("some text")
         assert "summary" in result
 
     @pytest.mark.asyncio
     async def test_real_key_calls_gemini_and_parses_json(self):
-        """FR-ACA-02: Real Gemini API call"""
+        """TC-AI-03: Real Gemini API call"""
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text=ai_json(35.0))
         
@@ -64,7 +65,7 @@ class TestAnalyzeContractText:
 
     @pytest.mark.asyncio
     async def test_gemini_exception_returns_error_dict(self):
-        """FR-ACA-03: Error handling"""
+        """TC-AI-04: Error handling"""
         mock_model = MagicMock()
         mock_model.generate_content.side_effect = Exception("API timeout")
         
@@ -77,7 +78,7 @@ class TestAnalyzeContractText:
 
     @pytest.mark.asyncio
     async def test_markdown_fences_stripped_before_parse(self):
-        """FR-ACA-04: JSON fence stripping"""
+        """TC-AI-05: JSON fence stripping"""
         fenced = f"```json\n{ai_json(50.0)}\n```"
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text=fenced)
@@ -93,7 +94,7 @@ class TestAnalyzeContractById:
 
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_none(self):
-        """NFR-RB-06: Input validation"""
+        """TC-AI-06: Input validation"""
         with patch.object(ai_module, "contracts_collection") as mock_col:
             result = await ai_module.analyze_contract_by_id("not-valid-id")
         assert result is None
@@ -107,7 +108,7 @@ class TestAnalyzeContractById:
 
     @pytest.mark.asyncio
     async def test_contract_found_analysis_stored(self):
-        """FR-ACA-05: Analysis stored on contract"""
+        """TC-AI-08: Analysis stored on contract"""
         contract = make_contract()
         with patch.object(ai_module, "GEMINI_API_KEY", ""), \
              patch.object(ai_module, "contracts_collection") as mock_col:
@@ -123,7 +124,7 @@ class TestDetectConflicts:
 
     @pytest.mark.asyncio
     async def test_fewer_than_2_contracts_returns_error(self):
-        """FR-CAS-01: Require 2+ contracts"""
+        """TC-AI-09: Require 2+ contracts"""
         contract = make_contract()
         with patch.object(ai_module, "contracts_collection") as mock_col:
             mock_col.find_one.return_value = contract
@@ -134,7 +135,7 @@ class TestDetectConflicts:
 
     @pytest.mark.asyncio
     async def test_invalid_ids_skipped(self):
-        """NFR-RB-06: Invalid IDs silently skipped"""
+        """TC-AI-10: Invalid IDs silently skipped"""
         with patch.object(ai_module, "contracts_collection") as mock_col:
             mock_col.find_one.return_value = None
             result = await ai_module.detect_conflicts(["bad-1", "bad-2"])
@@ -143,7 +144,7 @@ class TestDetectConflicts:
 
     @pytest.mark.asyncio
     async def test_no_api_key_returns_mock_conflicts(self):
-        """FR-CAS-02: Mock conflicts when no API key"""
+        """TC-AI-11: Mock conflicts when no API key"""
         c1, c2 = make_contract("NDA"), make_contract("SLA")
         with patch.object(ai_module, "GEMINI_API_KEY", ""), \
              patch.object(ai_module, "contracts_collection") as mock_col:
@@ -157,7 +158,7 @@ class TestDetectConflicts:
 class TestBuildContractText:
 
     def test_basic_fields_included(self):
-        """FR-ACA-06: Contract text building"""
+        """TC-AI-12: Contract text building"""
         contract = make_contract(title="Service Agreement")
         result = ai_module._build_contract_text(contract)
         assert "Service Agreement" in result
@@ -188,14 +189,14 @@ class TestScanContractAgainstExisting:
 
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_error(self):
-        """NFR-RB-06: Input validation"""
+        """TC-AI-17: Input validation"""
         result = await ai_module.scan_contract_against_existing("not-valid")
         assert "error" in result
         assert result["total_conflicts"] == 0
 
     @pytest.mark.asyncio
     async def test_no_other_contracts_returns_conflict_free(self):
-        """FR-CAS-03: No conflicts when alone"""
+        """TC-AI-18: No conflicts when alone"""
         with patch.object(ai_module, "contracts_collection") as mock_col:
             mock_col.find.return_value.sort.return_value.limit.return_value = iter([])
             result = await ai_module.scan_contract_against_existing(str(ObjectId()))

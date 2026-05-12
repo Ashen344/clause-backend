@@ -9,7 +9,7 @@ class TestCreateAuditLog:
 
     @patch.object(audit_module, "audit_logs_collection")
     def test_log_inserted_with_correct_fields(self, mock_col):
-        """NFR-SC-06: Audit log creation"""
+        """TC-AU-01: Audit log creation"""
         from app.models.audit_log import AuditAction
         mock_col.insert_one.return_value = MagicMock()
         
@@ -30,7 +30,7 @@ class TestCreateAuditLog:
 
     @patch.object(audit_module, "audit_logs_collection")
     def test_log_inserted_with_optional_fields_as_none(self, mock_col):
-        """Optional fields default to None"""
+        """TC-AU-02: Optional fields default to None"""
         from app.models.audit_log import AuditAction
         mock_col.insert_one.return_value = MagicMock()
         
@@ -47,7 +47,7 @@ class TestCreateAuditLog:
 
     @patch.object(audit_module, "audit_logs_collection")
     def test_created_at_timestamp_is_set(self, mock_col):
-        """NFR-SC-07: Timestamp on audit logs"""
+        """TC-AU-03: Timestamp on audit logs"""
         from app.models.audit_log import AuditAction
         mock_col.insert_one.return_value = MagicMock()
         
@@ -63,7 +63,7 @@ class TestCreateAuditLog:
 
     @patch.object(audit_module, "audit_logs_collection")
     def test_all_action_types_accepted(self, mock_col):
-        """All AuditAction enum values work"""
+        """TC-AU-04: All AuditAction enum values work"""
         from app.models.audit_log import AuditAction
         mock_col.insert_one.return_value = MagicMock()
         
@@ -83,7 +83,7 @@ class TestGetAuditLogs:
 
     @patch.object(audit_module, "audit_logs_collection")
     def test_no_filters_empty_query(self, mock_col):
-        """NFR-SC-08: Get audit logs without filters"""
+        """TC-AU-05: Get audit logs without filters"""
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         
@@ -94,7 +94,7 @@ class TestGetAuditLogs:
 
     @patch.object(audit_module, "audit_logs_collection")
     def test_resource_type_filter(self, mock_col):
-        """NFR-SC-09: Filter by resource type"""
+        """TC-AU-06: Filter by resource type"""
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         

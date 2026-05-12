@@ -36,7 +36,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid(self, mock_contracts, mock_workflows):
-        """NFR-RB-06: Input validation"""
+        """TC-WF-01: Input validation"""
         assert await workflow_module.advance_workflow("bad-id", "user_001") is None
 
     @patch.object(workflow_module, "workflows_collection")
@@ -50,7 +50,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_non_active_workflow_returns_none(self, mock_contracts, mock_workflows):
-        """Cannot advance completed workflow"""
+        """TC-WF-03: Cannot advance completed workflow"""
         workflow = make_workflow(status="completed")
         mock_workflows.find_one.return_value = workflow
         assert await workflow_module.advance_workflow(str(workflow["_id"]), "user_001") is None
@@ -59,7 +59,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_step_out_of_bounds(self, mock_contracts, mock_workflows):
-        """Edge case: Invalid step index"""
+        """TC-WF-04: Edge case: Invalid step index"""
         workflow = make_workflow(current_step=10, num_steps=2)
         mock_workflows.find_one.return_value = workflow
         assert await workflow_module.advance_workflow(str(workflow["_id"]), "user_001") is None
@@ -68,7 +68,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_mid_advance_no_comments(self, mock_contracts, mock_workflows):
-        """FR-WP-01: Mid-workflow advance without comments"""
+        """TC-WF-05: Mid-workflow advance without comments"""
         workflow = make_workflow(current_step=1, num_steps=3)
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()
@@ -82,7 +82,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_comments_saved_on_step(self, mock_contracts, mock_workflows):
-        """FR-WP-02: Comments on step completion"""
+        """TC-WF-06: Comments on step completion"""
         workflow = make_workflow(current_step=1, num_steps=3)
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()
@@ -96,7 +96,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_last_step_completion_marks_workflow_done(self, mock_contracts, mock_workflows):
-        """FR-WP-03: Last step completion"""
+        """TC-WF-07: Last step completion"""
         workflow = make_workflow(current_step=2, num_steps=2, contract_id=str(ObjectId()))
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()
@@ -112,7 +112,7 @@ class TestAdvanceWorkflow:
     @patch.object(workflow_module, "workflows_collection")
     @pytest.mark.asyncio
     async def test_last_step_no_contract_id(self, mock_workflows, mock_contracts):
-        """Edge case: No contract_id on last step - still attempts update"""
+        """TC-WF-08: Edge case: No contract_id on last step - still attempts update"""
         workflow = make_workflow(current_step=2, num_steps=2, contract_id=None)
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()
@@ -144,7 +144,7 @@ class TestRejectWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_rejection_reverts_contract_to_draft(self, mock_contracts, mock_workflows):
-        """FR-WP-04: Rejection reverts contract"""
+        """TC-WF-11: Rejection reverts contract"""
         workflow = make_workflow(contract_id=str(ObjectId()))
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()
@@ -159,7 +159,7 @@ class TestRejectWorkflow:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_rejection_with_reason_saved(self, mock_contracts, mock_workflows):
-        """FR-WP-05: Rejection reason"""
+        """TC-WF-12: Rejection reason"""
         workflow = make_workflow()
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()
@@ -187,7 +187,7 @@ class TestGetWorkflow:
     @patch.object(workflow_module, "workflows_collection")
     @pytest.mark.asyncio
     async def test_found_returns_workflow(self, mock_col):
-        """FR-WP-06: Get workflow by ID"""
+        """TC-WF-15: Get workflow by ID"""
         mock_col.find_one.return_value = make_workflow()
         result = await workflow_module.get_workflow(str(ObjectId()))
         assert result is not None
@@ -200,7 +200,7 @@ class TestGetAllWorkflows:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_admin_sees_all_workflows(self, mock_contracts, mock_workflows):
-        """NFR-RB-04: Admin sees all workflows"""
+        """TC-WF-16: Admin sees all workflows"""
         mock_workflows.find.return_value.sort.return_value = iter([make_workflow()])
         result = await workflow_module.get_all_workflows("admin_001", is_admin=True)
         assert len(result["workflows"]) == 1
@@ -209,7 +209,7 @@ class TestGetAllWorkflows:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_non_admin_no_contracts_returns_empty(self, mock_contracts, mock_workflows):
-        """NFR-RB-05: Non-admin with no contracts"""
+        """TC-WF-17: Non-admin with no contracts"""
         mock_contracts.find.return_value = iter([])
         result = await workflow_module.get_all_workflows("user_001", is_admin=False)
         assert result["workflows"] == []
@@ -219,7 +219,7 @@ class TestGetAllWorkflows:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_non_admin_with_contracts_filters_workflows(self, mock_contracts, mock_workflows):
-        """NFR-RB-06: User scope filtering"""
+        """TC-WF-18: User scope filtering"""
         mock_contracts.find.return_value = iter([{"_id": ObjectId()}])
         mock_workflows.find.return_value.sort.return_value = iter([make_workflow()])
         result = await workflow_module.get_all_workflows("user_001", is_admin=False)
@@ -231,7 +231,7 @@ class TestGetWorkflowsByContract:
     @patch.object(workflow_module, "workflows_collection")
     @pytest.mark.asyncio
     async def test_returns_workflows_for_contract(self, mock_col):
-        """FR-WP-07: Get workflows by contract"""
+        """TC-WF-19: Get workflows by contract"""
         w1 = make_workflow()
         w2 = make_workflow()
         mock_col.find.return_value.sort.return_value = iter([w1, w2])
@@ -248,7 +248,7 @@ class TestGetWorkflowsByContract:
     @patch.object(workflow_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_workflow_stage_mapping(self, mock_contracts, mock_workflows):
-        """FR-WP-13: Workflow stage mapping to contract"""
+        """TC-WF-21: Workflow stage mapping to contract"""
         workflow = make_workflow(current_step=1, num_steps=9)
         mock_workflows.find_one.side_effect = [workflow, {**workflow}]
         mock_workflows.update_one.return_value = MagicMock()

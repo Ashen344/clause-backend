@@ -36,14 +36,14 @@ class TestEvaluateDecision:
         assert _evaluate_decision([approver("u1"), approver("u2")], "all_required") == "pending"
 
     def test_P2_first_person_approved(self):
-        """FR-WP-05: First-person approval"""
+        """TC-AP-02: First-person approval"""
         assert _evaluate_decision([approver("u1", "approved")], "first_person") == "approved"
 
     def test_P3_first_person_rejected(self):
         assert _evaluate_decision([approver("u1", "rejected")], "first_person") == "rejected"
 
     def test_P4_all_required_one_rejection(self):
-        """FR-WP-06: All-required rejection"""
+        """TC-AP-04: All-required rejection"""
         assert _evaluate_decision(
             [approver("u1", "approved"), approver("u2", "rejected")], "all_required"
         ) == "rejected"
@@ -54,7 +54,7 @@ class TestEvaluateDecision:
         ) == "changes_requested"
 
     def test_P5_all_required_all_approved(self):
-        """FR-WP-06: All-required approval"""
+        """TC-AP-06: All-required approval"""
         assert _evaluate_decision(
             [approver("u1", "approved"), approver("u2", "approved")], "all_required"
         ) == "approved"
@@ -65,13 +65,13 @@ class TestEvaluateDecision:
         ) == "pending"
 
     def test_P7_majority_not_all_voted(self):
-        """FR-WP-07: Majority not ready"""
+        """TC-AP-08: Majority not ready"""
         assert _evaluate_decision(
             [approver("u1", "approved"), approver("u2")], "majority"
         ) == "pending"
 
     def test_P8_majority_approved(self):
-        """FR-WP-08: Majority approved"""
+        """TC-AP-09: Majority approved"""
         assert _evaluate_decision(
             [approver("u1", "approved"), approver("u2", "approved"), approver("u3", "rejected")],
             "majority",
@@ -98,7 +98,7 @@ class TestCastVote:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-AI-13: Input validation"""
         from app.models.approval import VoteRequest, ApprovalDecision
         assert await approval_module.cast_vote(
             "bad-id", "u1", VoteRequest(decision=ApprovalDecision.approved)
@@ -131,7 +131,7 @@ class TestCastVote:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_unauthorized_voter_returns_none(self, mock_col):
-        """NFR-RB-01: Unauthorized voter rejected"""
+        """TC-AP-16: Unauthorized voter rejected"""
         from app.models.approval import VoteRequest, ApprovalDecision
         approval = make_approval(approvers=[approver("u2")])
         mock_col.find_one.return_value = approval
@@ -143,7 +143,7 @@ class TestCastVote:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_valid_vote_updates_status(self, mock_col):
-        """FR-WP-09: Vote casting updates status"""
+        """TC-AP-17: Vote casting updates status"""
         from app.models.approval import VoteRequest, ApprovalDecision
         approval = make_approval(approval_type="all_required", approvers=[approver("u1"), approver("u2")])
         mock_col.find_one.side_effect = [approval, {**approval}]
@@ -162,7 +162,7 @@ class TestGetPendingApprovals:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_returns_only_unvoted_approvals(self, mock_col):
-        """FR-WP-10: Get pending approvals"""
+        """TC-AP-18: Get pending approvals"""
         approval = {
             "_id": ObjectId(),
             "status": "pending",
@@ -196,7 +196,7 @@ class TestGetApprovalsByContract:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_returns_all_approvals_for_contract(self, mock_col):
-        """FR-WP-11: Get approvals by contract"""
+        """TC-AP-20: Get approvals by contract"""
         cid = str(ObjectId())
         a1 = {"_id": ObjectId(), "contract_id": cid, "status": "pending", "approvers": []}
         a2 = {"_id": ObjectId(), "contract_id": cid, "status": "approved", "approvers": []}
@@ -214,7 +214,7 @@ class TestGetApprovalsByContract:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_admin_can_vote_even_if_not_listed(self, mock_col):
-        """NFR-RB-07: Admin can vote even if not in approver list"""
+        """TC-AP-22: Admin can vote even if not in approver list"""
         from app.models.approval import VoteRequest, ApprovalDecision
         approval = make_approval(approvers=[approver("u2")])
         mock_col.find_one.side_effect = [approval, {**approval}]
@@ -230,7 +230,7 @@ class TestGetApprovalsByContract:
     @patch.object(approval_module, "approvals_collection")
     @pytest.mark.asyncio
     async def test_changes_requested_in_all_required(self, mock_col):
-        """FR-WP-12: Changes requested handling"""
+        """TC-AP-23: Changes requested handling"""
         from app.models.approval import VoteRequest, ApprovalDecision
         approval = make_approval(approvers=[approver("u1"), approver("u2")])
         mock_col.find_one.side_effect = [approval, {**approval}]

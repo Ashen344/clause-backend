@@ -22,7 +22,7 @@ def make_template(name="My Template", version=1):
 class TestTemplateToResponse:
 
     def test_converts_id_to_string(self):
-        """NFR-MB-01: ID conversion"""
+        """TC-TMP-01: ID conversion"""
         result = template_module.template_to_response(make_template())
         assert "id" in result
         assert "_id" not in result
@@ -38,7 +38,7 @@ class TestGetTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_none(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-TMP-03: Input validation"""
         assert await template_module.get_template("not-valid-id!!!") is None
 
     @patch.object(template_module, "templates_collection")
@@ -50,7 +50,7 @@ class TestGetTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_found_returns_template(self, mock_col):
-        """FR-CCT-01: Get template by ID"""
+        """TC-TMP-05: Get template by ID"""
         mock_col.find_one.return_value = make_template()
         result = await template_module.get_template(str(ObjectId()))
         assert result is not None
@@ -62,7 +62,7 @@ class TestGetTemplates:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_no_filters_base_query(self, mock_col):
-        """FR-CCT-02: List active templates"""
+        """TC-TMP-06: List active templates"""
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         
@@ -74,7 +74,7 @@ class TestGetTemplates:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_contract_type_filter_added(self, mock_col):
-        """FR-CCT-03: Filter by contract type"""
+        """TC-TMP-07: Filter by contract type"""
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         
@@ -86,7 +86,7 @@ class TestGetTemplates:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_search_filter_adds_regex(self, mock_col):
-        """FR-CCT-04: Search templates"""
+        """TC-TMP-08: Search templates"""
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         
@@ -110,7 +110,7 @@ class TestGetTemplates:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_empty_result_total_pages_zero(self, mock_col):
-        """Edge case: Empty result"""
+        """TC-TMP-10: Edge case: Empty result"""
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         
@@ -123,14 +123,14 @@ class TestUpdateTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_none(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-TMP-11: Input validation"""
         from app.models.template import TemplateUpdate
         assert await template_module.update_template("bad-id", TemplateUpdate()) is None
 
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_empty_update_no_db_write(self, mock_col):
-        """Edge case: Empty update"""
+        """TC-TMP-12: Edge case: Empty update"""
         from app.models.template import TemplateUpdate
         mock_col.find_one.return_value = make_template()
         
@@ -141,7 +141,7 @@ class TestUpdateTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_update_without_content_no_version_bump(self, mock_col):
-        """FR-CCT-05: Update without content change"""
+        """TC-TMP-13: Update without content change"""
         from app.models.template import TemplateUpdate
         mock_col.find_one.return_value = make_template(version=2)
         mock_col.update_one.return_value = MagicMock()
@@ -154,7 +154,7 @@ class TestUpdateTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_update_with_content_bumps_version(self, mock_col):
-        """FR-CCT-06: Version bump on content change"""
+        """TC-TMP-14: Version bump on content change"""
         from app.models.template import TemplateUpdate
         mock_col.find_one.side_effect = [make_template(version=2), make_template(version=3)]
         mock_col.update_one.return_value = MagicMock()
@@ -175,7 +175,7 @@ class TestDeleteTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_soft_delete_sets_inactive(self, mock_col):
-        """FR-CCT-07: Soft delete template"""
+        """TC-TMP-16: Soft delete template"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
         result = await template_module.delete_template(str(ObjectId()))
         assert result is True
@@ -185,7 +185,7 @@ class TestCreateTemplate:
     @patch.object(template_module, "templates_collection")
     @pytest.mark.asyncio
     async def test_template_created_successfully(self, mock_col):
-        """FR-CCT-08: Create template"""
+        """TC-TMP-17: Create template"""
         from app.models.template import TemplateCreate
         mock_col.insert_one.return_value = MagicMock(inserted_id=ObjectId())
         mock_col.find_one.return_value = make_template()

@@ -23,7 +23,7 @@ class TestGetOrCreateUser:
 
     @patch.object(auth_module, "users_collection")
     def test_existing_user_updates_last_login(self, mock_col):
-        """FR-UAM-01: User authentication via Clerk ID"""
+        """TC-AUTH-01: User authentication via Clerk ID"""
         existing = make_user()
         mock_col.find_one.return_value = existing
         mock_col.update_one.return_value = MagicMock()
@@ -36,7 +36,7 @@ class TestGetOrCreateUser:
 
     @patch.object(auth_module, "users_collection")
     def test_new_user_is_created(self, mock_col):
-        """FR-UAM-06: New user creation with default role"""
+        """TC-AUTH-02: New user creation with default role"""
         mock_col.find_one.return_value = None
         mock_col.insert_one.return_value = MagicMock(inserted_id=ObjectId())
         mock_col.find_one.side_effect = [None, make_user()]
@@ -51,13 +51,13 @@ class TestGetUserById:
 
     @patch.object(auth_module, "users_collection")
     def test_invalid_objectid_returns_none(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-AUTH-03: Input validation"""
         assert auth_module.get_user_by_id("invalid!!!") is None
         mock_col.find_one.assert_not_called()
 
     @patch.object(auth_module, "users_collection")
     def test_valid_id_user_found(self, mock_col):
-        """FR-UAM-07: User lookup by ID"""
+        """TC-AUTH-04: User lookup by ID"""
         mock_col.find_one.return_value = make_user()
         result = auth_module.get_user_by_id(str(ObjectId()))
         assert result is not None
@@ -73,7 +73,7 @@ class TestGetUserByClerkId:
 
     @patch.object(auth_module, "users_collection")
     def test_user_found_returns_response(self, mock_col):
-        """FR-UAM-08: Lookup by Clerk ID"""
+        """TC-AUTH-06: Lookup by Clerk ID"""
         mock_col.find_one.return_value = make_user()
         result = auth_module.get_user_by_clerk_id("clerk_123")
         assert result is not None
@@ -88,7 +88,7 @@ class TestUpdateUserRole:
 
     @patch.object(auth_module, "users_collection")
     def test_invalid_objectid_returns_none(self, mock_col):
-        """NFR-RB-06: Input validation for role update"""
+        """TC-AUTH-08: Input validation for role update"""
         assert auth_module.update_user_role("bad!!!", "admin") is None
 
     @patch.object(auth_module, "users_collection")
@@ -98,7 +98,7 @@ class TestUpdateUserRole:
 
     @patch.object(auth_module, "users_collection")
     def test_role_updated_successfully(self, mock_col):
-        """FR-UAM-09: Role update (admin action)"""
+        """TC-AUTH-10: Role update (admin action)"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
         mock_col.find_one.return_value = make_user(role="admin")
         result = auth_module.update_user_role(str(ObjectId()), "admin")
@@ -109,7 +109,7 @@ class TestUpdateUser:
 
     @patch.object(auth_module, "users_collection")
     def test_empty_update_returns_existing_user(self, mock_col):
-        """Edge case: No fields to update"""
+        """TC-AUTH-11: Edge case: No fields to update"""
         from app.models.user import UserUpdate
         mock_col.find_one.return_value = make_user()
         result = auth_module.update_user("clerk_123", UserUpdate())
@@ -117,7 +117,7 @@ class TestUpdateUser:
 
     @patch.object(auth_module, "users_collection")
     def test_update_with_fields_writes_to_db(self, mock_col):
-        """FR-UAM-10: User profile update"""
+        """TC-AUTH-12: User profile update"""
         from app.models.user import UserUpdate
         mock_col.update_one.return_value = MagicMock()
         mock_col.find_one.return_value = make_user()
@@ -138,7 +138,7 @@ class TestDeactivateUser:
 
     @patch.object(auth_module, "users_collection")
     def test_deactivation_sets_inactive(self, mock_col):
-        """FR-UAM-11: User deactivation"""
+        """TC-AUTH-15: User deactivation"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
         mock_col.find_one.return_value = make_user(status="inactive")
         result = auth_module.deactivate_user(str(ObjectId()))
@@ -149,7 +149,7 @@ class TestGetAllUsers:
 
     @patch.object(auth_module, "users_collection")
     def test_pagination_arithmetic(self, mock_col):
-        """FR-UAM-12: Pagination"""
+        """TC-AUTH-16: Pagination"""
         mock_col.count_documents.return_value = 50
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
         result = auth_module.get_all_users(page=3, per_page=15)
@@ -159,12 +159,12 @@ class TestActivateUser:
 
     @patch.object(auth_module, "users_collection")
     def test_invalid_objectid(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-AUTH-17: Input validation"""
         assert auth_module.activate_user("bad-id") is None
 
     @patch.object(auth_module, "users_collection")
     def test_activation_sets_active(self, mock_col):
-        """FR-UAM-13: User activation"""
+        """TC-AUTH-18: User activation"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
         mock_col.find_one.return_value = make_user(status="active")
         result = auth_module.activate_user(str(ObjectId()))

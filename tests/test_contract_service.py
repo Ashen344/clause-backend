@@ -25,7 +25,7 @@ def make_contract(created_by="user_001", status="active", ai=None):
 class TestContractToResponse:
 
     def test_with_ai_analysis_flattens_risk_fields(self):
-        """FR-ACA-01: Risk fields promotion"""
+        """TC-CON-01: Risk fields promotion"""
         result = contract_module.contract_to_response(
             make_contract(ai={"risk_score": 75.0, "risk_level": "high"})
         )
@@ -43,7 +43,7 @@ class TestGetContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_none(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-CON-03: Input validation"""
         assert await contract_module.get_contract("not-valid") is None
 
     @patch.object(contract_module, "contracts_collection")
@@ -55,7 +55,7 @@ class TestGetContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_admin_can_access_any_contract(self, mock_col):
-        """NFR-RB-01: Admin bypass ownership check"""
+        """TC-CON-05: Admin bypass ownership check"""
         contract = make_contract(created_by="other_user")
         mock_col.find_one.return_value = contract
         result = await contract_module.get_contract(
@@ -66,7 +66,7 @@ class TestGetContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_user_access_own_contract(self, mock_col):
-        """NFR-RB-02: User can access own contract"""
+        """TC-CON-06: User can access own contract"""
         contract = make_contract(created_by="user_001")
         mock_col.find_one.return_value = contract
         result = await contract_module.get_contract(
@@ -77,7 +77,7 @@ class TestGetContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_user_cannot_access_others_contract(self, mock_col):
-        """NFR-RB-03: Access denied for other user's contract"""
+        """TC-CON-07: Access denied for other user's contract"""
         contract = make_contract(created_by="user_001")
         mock_col.find_one.return_value = contract
         result = await contract_module.get_contract(
@@ -91,7 +91,7 @@ class TestGetContracts:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_non_admin_scoped_to_user(self, mock_col):
-        """NFR-RB-04: User scope filtering"""
+        """TC-CON-08: User scope filtering"""
         from app.models.contract import ContractFilter
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
@@ -105,7 +105,7 @@ class TestGetContracts:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_admin_sees_all_contracts(self, mock_col):
-        """NFR-RB-05: Admin sees all"""
+        """TC-CON-09: Admin sees all"""
         from app.models.contract import ContractFilter
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
@@ -119,7 +119,7 @@ class TestGetContracts:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_search_filter_adds_regex(self, mock_col):
-        """FR-CM-02: Text search"""
+        """TC-CON-10: Text search"""
         from app.models.contract import ContractFilter
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
@@ -134,7 +134,7 @@ class TestGetContracts:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_status_filter_added(self, mock_col):
-        """FR-CM-03: Status filtering"""
+        """TC-CON-11: Status filtering"""
         from app.models.contract import ContractFilter, ContractStatus
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
@@ -149,7 +149,7 @@ class TestGetContracts:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_date_range_filter(self, mock_col):
-        """FR-CM-04: Date range filtering"""
+        """TC-CON-12: Date range filtering"""
         from app.models.contract import ContractFilter
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
@@ -172,7 +172,7 @@ class TestGetDashboardStats:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_returns_all_required_keys(self, mock_col):
-        """FR-CM-05: Dashboard statistics"""
+        """TC-CON-13: Dashboard statistics"""
         mock_col.count_documents.return_value = 0
         result = await contract_module.get_dashboard_stats()
         assert "total_contracts" in result
@@ -192,14 +192,14 @@ class TestUpdateContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-CON-15: Input validation"""
         from app.models.contract import ContractUpdate
         assert await contract_module.update_contract("bad-id", ContractUpdate()) is None
 
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_empty_update_no_db_write(self, mock_col):
-        """Edge case: Empty update"""
+        """TC-CON-16: Edge case: Empty update"""
         from app.models.contract import ContractUpdate
         mock_col.find_one.return_value = make_contract()
         
@@ -210,7 +210,7 @@ class TestUpdateContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_update_with_fields(self, mock_col):
-        """FR-CM-06: Contract update"""
+        """TC-CON-17: Contract update"""
         from app.models.contract import ContractUpdate
         mock_col.find_one.return_value = make_contract()
         mock_col.update_one.return_value = MagicMock()
@@ -227,6 +227,7 @@ class TestDeleteContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_false(self, mock_col):
+        """TC-CON-18: Input validation"""
         assert await contract_module.delete_contract("bad-id") is False
 
     @patch.object(contract_module, "contracts_collection")
@@ -238,7 +239,7 @@ class TestDeleteContract:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_delete_success_returns_true(self, mock_col):
-        """FR-CM-07: Contract deletion"""
+        """TC-CON-20: Contract deletion"""
         mock_col.delete_one.return_value = MagicMock(deleted_count=1)
         assert await contract_module.delete_contract(str(ObjectId())) is True
 
@@ -248,12 +249,13 @@ class TestUpdateWorkflowStage:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_invalid_objectid_returns_none(self, mock_col):
+        """TC-CON-21: Input validation"""
         assert await contract_module.update_workflow_stage("bad-id", "approval") is None
 
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_valid_id_updates_stage(self, mock_col):
-        """FR-CM-08: Workflow stage update"""
+        """TC-CON-22: Workflow stage update"""
         mock_col.find_one.return_value = make_contract()
         mock_col.update_one.return_value = MagicMock()
         
@@ -265,7 +267,7 @@ class TestUpdateWorkflowStage:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_risk_level_filter(self, mock_col):
-        """FR-CM-09: Risk level filtering"""
+        """TC-CON-23: Risk level filtering"""
         from app.models.contract import ContractFilter, RiskLevel
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])
@@ -280,7 +282,7 @@ class TestUpdateWorkflowStage:
     @patch.object(contract_module, "contracts_collection")
     @pytest.mark.asyncio
     async def test_workflow_stage_filter(self, mock_col):
-        """FR-CM-10: Workflow stage filtering"""
+        """TC-CON-24: Workflow stage filtering"""
         from app.models.contract import ContractFilter, WorkflowStage
         mock_col.count_documents.return_value = 0
         mock_col.find.return_value.sort.return_value.skip.return_value.limit.return_value = iter([])

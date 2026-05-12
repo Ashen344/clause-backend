@@ -21,7 +21,7 @@ def make_notification(user_id="user_001", is_read=False):
 class TestNotificationToResponse:
 
     def test_converts_id_to_string(self):
-        """NFR-MB-01: ID conversion"""
+        """TC-NOT-01: ID conversion"""
         result = notif_module.notification_to_response(make_notification())
         assert "id" in result
         assert "_id" not in result
@@ -36,14 +36,14 @@ class TestGetUserNotifications:
 
     @patch.object(notif_module, "notifications_collection")
     def test_all_notifications_no_filter(self, mock_col):
-        """FR-NA-01: Get all notifications"""
+        """TC-NOT-03: Get all notifications"""
         mock_col.find.return_value.sort.return_value.limit.return_value = iter([make_notification()])
         result = notif_module.get_user_notifications("user_001", unread_only=False)
         assert len(result) == 1
 
     @patch.object(notif_module, "notifications_collection")
     def test_unread_only_filter_applied(self, mock_col):
-        """FR-NA-02: Filter unread notifications"""
+        """TC-NOT-04: Filter unread notifications"""
         mock_col.find.return_value.sort.return_value.limit.return_value = iter([make_notification()])
         notif_module.get_user_notifications("user_001", unread_only=True)
         query = mock_col.find.call_args[0][0]
@@ -56,7 +56,7 @@ class TestGetUserNotifications:
 
     @patch.object(notif_module, "notifications_collection")
     def test_custom_limit_passed_to_query(self, mock_col):
-        """FR-NA-03: Custom limit"""
+        """TC-NOT-06: Custom limit"""
         mock_col.find.return_value.sort.return_value.limit.return_value = iter([])
         notif_module.get_user_notifications("user_001", limit=10)
         mock_col.find.return_value.sort.return_value.limit.assert_called_with(10)
@@ -66,7 +66,7 @@ class TestMarkAsRead:
 
     @patch.object(notif_module, "notifications_collection")
     def test_invalid_objectid_returns_false(self, mock_col):
-        """NFR-RB-06: Input validation"""
+        """TC-NOT-07: Input validation"""
         assert notif_module.mark_as_read("not-valid-id") is False
 
     @patch.object(notif_module, "notifications_collection")
@@ -76,7 +76,7 @@ class TestMarkAsRead:
 
     @patch.object(notif_module, "notifications_collection")
     def test_mark_as_read_success(self, mock_col):
-        """FR-NA-04: Mark notification as read"""
+        """TC-NOT-09: Mark notification as read"""
         mock_col.update_one.return_value = MagicMock(matched_count=1)
         assert notif_module.mark_as_read(str(ObjectId())) is True
 
@@ -85,7 +85,7 @@ class TestMarkAllAsRead:
 
     @patch.object(notif_module, "notifications_collection")
     def test_returns_modified_count(self, mock_col):
-        """FR-NA-05: Mark all as read"""
+        """TC-NOT-10: Mark all as read"""
         mock_col.update_many.return_value = MagicMock(modified_count=5)
         assert notif_module.mark_all_as_read("user_001") == 5
 
@@ -99,7 +99,7 @@ class TestGetUnreadCount:
 
     @patch.object(notif_module, "notifications_collection")
     def test_returns_correct_count(self, mock_col):
-        """FR-NA-06: Get unread count"""
+        """TC-NOT-12: Get unread count"""
         mock_col.count_documents.return_value = 7
         assert notif_module.get_unread_count("user_001") == 7
 
@@ -112,7 +112,7 @@ class TestCreateNotification:
 
     @patch.object(notif_module, "notifications_collection")
     def test_notification_created_successfully(self, mock_col):
-        """FR-NA-07: Create notification"""
+        """TC-NOT-14: Create notification"""
         from app.models.notification import NotificationCreate
         mock_col.insert_one.return_value = MagicMock(inserted_id=ObjectId())
         mock_col.find_one.return_value = make_notification()
