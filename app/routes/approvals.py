@@ -1,4 +1,11 @@
+import logging
+import traceback
+
+from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+
 from app.middleware.auth import get_current_user, get_current_user_with_role
 from app.models.approval import ApprovalCreate, VoteRequest
 from app.services.approval_service import (
@@ -11,7 +18,8 @@ from app.services.approval_service import (
 from app.config import contracts_collection
 from app.services.audit_service import create_audit_log
 from app.models.audit_log import AuditAction
-from bson import ObjectId
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/approvals", tags=["Approvals"])
 
@@ -60,22 +68,28 @@ async def vote_on_approval(
     current_user: dict = Depends(get_current_user_with_role),
 ):
     """Cast a vote on an approval. Admins can vote on any approval; others only if listed as approver."""
-    is_admin = current_user.get("role") in ("admin", "manager")
-    result = await cast_vote(approval_id, user_id=current_user["user_id"], vote=vote, is_admin=is_admin)
-    if not result:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot vote. You may have already voted, not be an approver, or the approval is closed.",
+    try:
+        is_admin = current_user.get("role") in ("admin", "manager")
+        result = await cast_vote(approval_id, user_id=current_user["user_id"], vote=vote, is_admin=is_admin)
+        if not result:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot vote. You may have already voted, not be an approver, or the approval is closed.",
+            )
+        create_audit_log(
+            action=AuditAction.approval_vote,
+            resource_type="approval",
+            resource_id=approval_id,
+            user_id=current_user["user_id"],
+            user_email=current_user.get("email"),
+            details=f"Vote cast: {vote.decision} on approval {approval_id}",
         )
-    create_audit_log(
-        action=AuditAction.approval_vote,
-        resource_type="approval",
-        resource_id=approval_id,
-        user_id=current_user["user_id"],
-        user_email=current_user.get("email"),
-        details=f"Vote cast: {vote.vote} on approval {approval_id}",
-    )
-    return result
+        return JSONResponse(content=jsonable_encoder(result, custom_encoder={ObjectId: str}))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Vote route error:\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/pending/{user_id}")

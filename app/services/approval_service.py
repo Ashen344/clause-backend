@@ -1,7 +1,7 @@
 from bson import ObjectId
 from datetime import datetime
 from typing import Optional
-from app.config import approvals_collection
+from app.config import approvals_collection, contracts_collection
 from app.models.approval import (
     ApprovalCreate,
     ApprovalInDB,
@@ -101,6 +101,19 @@ async def cast_vote(approval_id: str, user_id: str, vote: VoteRequest, is_admin:
         {"_id": ObjectId(approval_id)},
         {"$set": update}
     )
+
+    # Keep contract workflow_stage in sync with the approval outcome
+    if overall_status != ApprovalStatus.pending.value:
+        contract_id = approval.get("contract_id", "")
+        if ObjectId.is_valid(contract_id):
+            if overall_status == ApprovalStatus.approved.value:
+                new_stage = "execution"
+            else:
+                new_stage = "review"
+            contracts_collection.update_one(
+                {"_id": ObjectId(contract_id)},
+                {"$set": {"workflow_stage": new_stage, "updated_at": datetime.utcnow()}},
+            )
 
     return await get_approval(approval_id)
 
